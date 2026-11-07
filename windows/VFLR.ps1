@@ -8,7 +8,7 @@ $profiles = @(Get-Content (Join-Path $root ConversionProfiles.tsv) | ForEach-Obj
 $form = New-Object Windows.Forms.Form
 $form.Text = "Ted's Video Tool (TVT) $version"
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object Drawing.Size(632, 460)
+$form.ClientSize = New-Object Drawing.Size(632, 508)
 $menu = New-Object Windows.Forms.MenuStrip
 $helpMenu = $menu.Items.Add('Help')
 $guide = $helpMenu.DropDownItems.Add('TVT User Guide')
@@ -19,20 +19,34 @@ $form.Controls.Add($menu)
 $form.MainMenuStrip = $menu
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
+$badge = New-Object Windows.Forms.Label
+$badge.Text = 'TVT'
+$badge.Font = New-Object Drawing.Font('Segoe UI', 15, [Drawing.FontStyle]::Bold)
+$badge.TextAlign = 'MiddleCenter'
+$badge.BackColor = [Drawing.Color]::FromArgb(23,48,87)
+$badge.ForeColor = [Drawing.Color]::FromArgb(196,240,255)
+$badge.SetBounds(18, 32, 62, 38)
+$form.Controls.Add($badge)
+$heading = New-Object Windows.Forms.Label
+$heading.Text = "Ted's Video Tool for 2D, 3D and VR"
+$heading.Font = New-Object Drawing.Font('Segoe UI', 16, [Drawing.FontStyle]::Bold)
+$heading.TextAlign = 'MiddleLeft'
+$heading.SetBounds(92, 32, 520, 38)
+$form.Controls.Add($heading)
 $tooltip = New-Object Windows.Forms.ToolTip
 $sourcesLabel = New-Object Windows.Forms.Label
-$sourcesLabel.SetBounds(18, 43, 420, 25)
+$sourcesLabel.SetBounds(18, 91, 420, 25)
 $sourcesLabel.Text = 'Drop videos here, or browse for files.'
 $sourcesLabel.AutoEllipsis = $true
 $form.Controls.Add($sourcesLabel)
 $browse = New-Object Windows.Forms.Button
 $browse.Text = 'Browse...'
-$browse.SetBounds(449, 39, 81, 27)
+$browse.SetBounds(449, 87, 81, 27)
 $browse.Add_Click({ Set-Sources @(Pick-Files $true) })
 $form.Controls.Add($browse)
 $clear = New-Object Windows.Forms.Button
 $clear.Text = 'Clear'
-$clear.SetBounds(537, 39, 74, 27)
+$clear.SetBounds(537, 87, 74, 27)
 $clear.Enabled = $false
 $clear.Add_Click({
     $script:sources = @()
@@ -45,10 +59,10 @@ $script:sources = @()
 
 $buttons = @()
 $groups = @(
-    @{ Title = 'Edit and Assemble'; X = 18; Y = 79; Tools = @('Trim Clip','Split Movie','Join Parts','Link Videos') },
-    @{ Title = 'Picture and Format'; X = 322; Y = 79; Tools = @('Upscale Video','Convert Video','Change Aspect or Stereo Layout') },
-    @{ Title = 'Audio and Subtitles'; X = 18; Y = 262; Tools = @('Extract or Remove Audio','Add Subtitles') },
-    @{ Title = 'Inspect and Download'; X = 322; Y = 262; Tools = @('MediaInfo','Download Online') }
+    @{ Title = 'Edit and Assemble'; X = 18; Y = 127; Tools = @('Trim Clip','Split Movie','Join Parts','Link Videos') },
+    @{ Title = 'Picture and Format'; X = 322; Y = 127; Tools = @('Upscale Video','Convert Video','Change Aspect or Stereo Layout') },
+    @{ Title = 'Audio and Subtitles'; X = 18; Y = 310; Tools = @('Extract or Remove Audio','Add Subtitles') },
+    @{ Title = 'Inspect and Download'; X = 322; Y = 310; Tools = @('MediaInfo','Download Online') }
 )
 foreach ($group in $groups) {
     $box = New-Object Windows.Forms.GroupBox
@@ -66,7 +80,7 @@ foreach ($group in $groups) {
 }
 
 $banner = New-Object Windows.Forms.Panel
-$banner.SetBounds(18, 389, 595, 47)
+$banner.SetBounds(18, 437, 595, 47)
 $banner.BackColor = [Drawing.Color]::FromArgb(235,235,235)
 $status = New-Object Windows.Forms.Label
 $status.SetBounds(11, 14, 450, 23)

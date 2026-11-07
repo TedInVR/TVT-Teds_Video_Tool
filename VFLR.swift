@@ -421,9 +421,28 @@ final class TVT: NSObject, NSApplicationDelegate {
             stack.topAnchor.constraint(equalTo: dropView.topAnchor, constant: 16)
         ])
 
-        let title = NSTextField(labelWithString: "Video Fix Link Restore")
-        title.font = .boldSystemFont(ofSize: 22)
-        stack.addArrangedSubview(title)
+        let badge = NSView()
+        badge.wantsLayer = true
+        badge.layer?.backgroundColor = NSColor(srgbRed: 0.09, green: 0.19, blue: 0.34, alpha: 1).cgColor
+        badge.layer?.cornerRadius = 9
+        badge.widthAnchor.constraint(equalToConstant: 62).isActive = true
+        badge.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        let monogram = NSTextField(labelWithString: "TVT")
+        monogram.font = .systemFont(ofSize: 20, weight: .heavy)
+        monogram.textColor = NSColor(srgbRed: 0.77, green: 0.94, blue: 1, alpha: 1)
+        monogram.translatesAutoresizingMaskIntoConstraints = false
+        badge.addSubview(monogram)
+        NSLayoutConstraint.activate([
+            monogram.centerXAnchor.constraint(equalTo: badge.centerXAnchor),
+            monogram.centerYAnchor.constraint(equalTo: badge.centerYAnchor)
+        ])
+
+        let title = NSTextField(labelWithString: "Ted's Video Tool for 2D, 3D and VR")
+        title.font = .systemFont(ofSize: 22, weight: .semibold)
+        let header = NSStackView(views: [badge, title])
+        header.spacing = 12
+        header.alignment = .centerY
+        stack.addArrangedSubview(header)
         sourcesLabel = NSTextField(labelWithString: "Drop videos here, or browse for files.")
         sourcesLabel.lineBreakMode = .byTruncatingMiddle
         sourcesLabel.widthAnchor.constraint(equalToConstant: 395).isActive = true

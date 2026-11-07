@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.3
+Ted's Video Tool (TVT) 0.8.4
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -20,6 +20,7 @@ after installation. Help > TVT User Guide opens
 the guide included with the installed version.
 
 Load files and choose a tool
+Look for the TVT logo beside Ted's Video Tool for 2D, 3D and VR.
 Drop files from Finder or File Explorer onto the TVT window. On Mac,
 you can also drop them onto the TVT app icon. A drop loads the files
 without starting a job. Browse is another way to load files. A new
