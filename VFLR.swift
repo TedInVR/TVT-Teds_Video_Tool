@@ -1036,7 +1036,7 @@ final class TVT: NSObject, NSApplicationDelegate {
 
     func checkUpdate(manual: Bool) {
         if queued {
-            if manual { alert("Update ready", "Quit TVT to install the downloaded update.") }
+            if manual { alert("Installing update", "TVT will reopen automatically.") }
             return
         }
         if checking {
@@ -1058,17 +1058,15 @@ final class TVT: NSObject, NSApplicationDelegate {
             let fields = output.split(separator: " ").map(String.init)
             guard fields.count == 2 else { return }
             if self.trimEditor != nil || self.restoreComparison != nil || self.processing { return }
-            if self.alert("TVT \(fields[0]) is available", "TVT will download the update and install it after you quit.", ["Download Update", "Later"]) != 0 { return }
+            if self.alert("TVT \(fields[0]) is available", "TVT will prepare the update, close to install it, and reopen automatically.", ["Quit and Install Update", "Later"]) != 0 { return }
             self.checking = true
-            self.execute(script, ["prepare", fields[0], fields[1], String(ProcessInfo.processInfo.processIdentifier)]) { prepared, detail in
+            self.beginProcessing("Preparing update… TVT will reopen automatically.")
+            self.execute(script, ["prepare", fields[0], fields[1], String(ProcessInfo.processInfo.processIdentifier), "restart"]) { prepared, detail in
                 self.checking = false
+                self.queued = prepared
+                self.endProcessing(prepared ? "Installing update…" : "Could not prepare update.", success: prepared)
                 if prepared {
-                    self.queued = true
-                    self.operations.forEach { $0.isEnabled = false }
-                    self.browseButton.isEnabled = false
-                    self.clearButton.isEnabled = false
-                    if !self.processing { self.status.stringValue = "Update ready. Quit TVT to install." }
-                    self.alert("Update ready", "Quit TVT to install it, then reopen TVT from Applications.")
+                    NSApp.terminate(nil)
                 } else {
                     self.alert("Could not prepare update", String(detail.suffix(2500)))
                 }

@@ -617,26 +617,68 @@ function Choose-Operation($operation) {
     } catch { Notice 'TVT' $_.Exception.Message }
 }
 $script:queued = $false
+$installPoll = New-Object Windows.Forms.Timer
+$installPoll.Interval = 250
+$installPoll.Add_Tick({
+    if (Test-Path -LiteralPath $script:updateReady) {
+        $installPoll.Stop()
+        $script:updateProcess.Dispose()
+        $form.Close()
+    } elseif ($script:updateProcess.HasExited) {
+        $installPoll.Stop()
+        $script:updateProcess.Dispose()
+        $script:queued = $false
+        foreach ($button in $buttons) { $button.Enabled = $true }
+        $browse.Enabled = $true
+        $clear.Enabled = $script:sources.Count -gt 0
+        $status.Text = 'Update preparation failed. Try Help > Check for Updates again.'
+    }
+})
+function Confirm-Update($release) {
+    $dialog = New-Object Windows.Forms.Form
+    try {
+        $dialog.Text = "TVT $release is available"
+        $dialog.ClientSize = New-Object Drawing.Size(440, 116)
+        $dialog.StartPosition = 'CenterParent'
+        $label = New-Object Windows.Forms.Label
+        $label.Text = 'TVT will prepare the update, close to install it, and reopen automatically.'
+        $label.SetBounds(14, 16, 412, 38)
+        $install = New-Object Windows.Forms.Button
+        $install.Text = 'Quit and Install Update'
+        $install.SetBounds(164, 69, 170, 30)
+        $install.DialogResult = 'OK'
+        $later = New-Object Windows.Forms.Button
+        $later.Text = 'Later'
+        $later.SetBounds(344, 69, 80, 30)
+        $later.DialogResult = 'Cancel'
+        $dialog.AcceptButton = $install
+        $dialog.CancelButton = $later
+        $dialog.Controls.AddRange(@($label,$install,$later))
+        return $dialog.ShowDialog($form) -eq 'OK'
+    } finally { $dialog.Dispose() }
+}
 function Check-Update([bool]$manual) {
-    if ($script:queued) { if ($manual) { Notice 'TVT' 'Close TVT to install the update.' }; return }
+    if ($script:queued) { if ($manual) { Notice 'TVT' 'TVT is preparing the update and will reopen automatically.' }; return }
     if ($job -or $script:trim) { if ($manual) { Notice 'TVT' 'Wait until the current operation finishes.' }; return }
     try {
         $commit = (Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/main" -TimeoutSec 12).sha
         if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'GitHub did not return a valid version reference.' }
         $release = [version](Invoke-RestMethod -Uri "https://raw.githubusercontent.com/$repo/$commit/VERSION" -TimeoutSec 12).Trim()
         if ($release -le $version) { if ($manual) { Notice 'TVT' "TVT $version is up to date." }; return }
-        if (-not (Confirm 'TVT Update' "Version $release is available. Queue installation for when TVT closes?")) { return }
+        if (-not (Confirm-Update $release)) { return }
         $install = Split-Path $root
         $helper = Join-Path $install ('Update-' + [guid]::NewGuid() + '.ps1')
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-VFLR.ps1') -Destination $helper
-        $args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $(Quote-Arg $helper) -ParentId $PID -Commit $commit -Version $release"
-        try { Start-Process powershell.exe -ArgumentList $args -WindowStyle Hidden -ErrorAction Stop }
+        $args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $(Quote-Arg $helper) -ParentId $PID -Commit $commit -Version $release -Restart"
+        try { $script:updateProcess = Start-Process powershell.exe -ArgumentList $args -WindowStyle Hidden -PassThru -ErrorAction Stop }
         catch { Remove-Item -LiteralPath $helper -Force; throw }
         $script:queued = $true
         foreach ($button in $buttons) { $button.Enabled = $false }
         $browse.Enabled = $false
         $clear.Enabled = $false
-        $status.Text = 'Update queued. Close TVT to install it.'
+        $status.Text = 'Preparing update... TVT will reopen automatically.'
+        $script:updateReady = "$helper.ready"
+        $installPoll.Start()
     } catch { if ($manual) { Notice 'Update check failed' $_.Exception.Message } }
 }
 $updates = New-Object Windows.Forms.Timer
@@ -645,6 +687,7 @@ $updates.Add_Tick({ Check-Update $false })
 $form.Add_Shown({ $updates.Start() })
 $form.Add_FormClosing({
     param($sender, $eventArgs)
+    if ($installPoll.Enabled) { $eventArgs.Cancel = $true; return }
     if ($job) { $eventArgs.Cancel = $true; Notice 'TVT' 'Wait for the current operation to finish before closing.' }
 })
 [void]$form.ShowDialog()

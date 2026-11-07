@@ -1,7 +1,8 @@
 param(
     [ValidatePattern('^[a-f0-9]{40}$')][string]$Commit,
     [version]$Version,
-    [int]$ParentId
+    [int]$ParentId,
+    [switch]$Restart
 )
 $ErrorActionPreference = 'Stop'
 $repo = 'TedInVR/TVT-Teds_Video_Tool'
@@ -9,6 +10,8 @@ $install = Join-Path $env:LOCALAPPDATA 'Programs\VFLR'
 $current = Join-Path $install 'App'
 $stage = Join-Path $install ('.stage-' + [guid]::NewGuid())
 $lock = $null
+$readyFile = if ($Restart -and $ParentId -and $PSCommandPath) { "$PSCommandPath.ready" }
+$launch = $false
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     [void](New-Item -ItemType Directory -Path $install -Force)
@@ -31,7 +34,10 @@ try {
     }
     if ($ParentId) {
         $parent = Get-Process -Id $ParentId -ErrorAction SilentlyContinue
-        if ($parent) { $parent.WaitForExit() }
+        if ($parent) {
+            if ($readyFile) { [IO.File]::WriteAllText($readyFile, '') }
+            $parent.WaitForExit()
+        }
     }
     $other = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
         Where-Object { $_.CommandLine -and $_.CommandLine.Contains((Join-Path $current 'windows\VFLR.ps1')) }
@@ -55,6 +61,7 @@ try {
     $shortcut.Save()
     $legacyShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'VFLR.lnk'
     if (Test-Path -LiteralPath $legacyShortcut) { Remove-Item -LiteralPath $legacyShortcut -ErrorAction SilentlyContinue }
+    $launch = $Restart -and $ParentId
     if (-not $ParentId) { Write-Host "Installed TVT $Version. Open Ted's Video Tool from the Start menu." }
 } catch {
     if (-not $ParentId) { throw }
@@ -63,5 +70,13 @@ try {
 } finally {
     if ($stage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force }
     if ($lock) { $lock.Dispose() }
+    if ($readyFile -and (Test-Path -LiteralPath $readyFile)) { Remove-Item -LiteralPath $readyFile -Force }
     if ($ParentId -and $PSCommandPath) { Remove-Item -LiteralPath $PSCommandPath -Force }
+}
+if ($launch) {
+    try { Start-Process -FilePath (Join-Path ([Environment]::GetFolderPath('Programs')) "Ted's Video Tool.lnk") }
+    catch {
+        Add-Type -AssemblyName System.Windows.Forms
+        [void][Windows.Forms.MessageBox]::Show("Open Ted's Video Tool from the Start menu.", 'TVT was updated')
+    }
 }

@@ -65,7 +65,7 @@ install_staged() {
     fi
 }
 prepare_install() {
-    local release=$1 sha=$2 parent_pid=${3:-}
+    local release=$1 sha=$2 parent_pid=${3:-} restart=${4:-}
     mkdir -p "$development"
     if ! mkdir "$lock"; then
         echo 'Another TVT installation is in progress.' >&2
@@ -77,7 +77,7 @@ prepare_install() {
     stage_build "$release" "$sha" "$stage"
     if [[ -n "$parent_pid" ]]; then
         cp "${BASH_SOURCE[0]}" "$stage/install-helper.sh"
-        /usr/bin/nohup /bin/bash "$stage/install-helper.sh" apply "$stage" "$parent_pid" \
+        /usr/bin/nohup /bin/bash "$stage/install-helper.sh" apply "$stage" "$parent_pid" "$restart" \
             </dev/null >/dev/null 2>&1 &
         trap - EXIT
     else
@@ -94,10 +94,10 @@ prepare_install() {
 }
 case "${1:-bootstrap}" in
     check) check_release "$2" ;;
-    prepare) prepare_install "$2" "$3" "$4" ;;
+    prepare) prepare_install "$2" "$3" "$4" "${5:-}" ;;
     apply)
         stage=$2
-        trap 'if [[ -n "$stage" ]]; then rm -rf "$stage"; fi; rmdir "$lock"' EXIT
+        trap 'if [[ -n "$stage" ]]; then rm -rf "$stage"; fi; if [[ -d "$lock" ]]; then rmdir "$lock"; fi' EXIT
         while kill -0 "$3" 2>/dev/null; do sleep 1; done
         result=0
         install_staged "$stage" || result=$?
@@ -108,6 +108,13 @@ case "${1:-bootstrap}" in
                 stage=''
             fi
             /usr/bin/osascript -e 'on run argv' -e 'display alert "TVT update failed" message (item 1 of argv)' -e 'end run' "$message"
+        fi
+        if [[ "$result" == 0 && "${4:-}" == restart ]]; then
+            # The new app refuses to launch while the install lock exists.
+            rm -rf "$stage"
+            rmdir "$lock"
+            trap - EXIT
+            /usr/bin/open "$target" || /usr/bin/osascript -e 'display alert "TVT was updated" message "Open TVT from Applications."'
         fi
         ;;
     bootstrap)

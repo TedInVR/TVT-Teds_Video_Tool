@@ -20,8 +20,8 @@ Command Line Tools supply Python 3 for stereo subtitle authoring and
 OpenSubtitles lookup.
 
 For later versions, open **Help → Check for Updates**. TVT also checks on
-launch and every 15 minutes. Download the update, then quit TVT so it can
-install. App files and update staging stay in Applications.
+launch and every 15 minutes. Choose **Quit and Install Update** to prepare
+the update, close TVT for installation, and reopen it automatically. App files and update staging stay in Applications.
 
 See the [User Guide](UserGuide.txt) or open **Help → TVT User Guide**.
 
@@ -49,7 +49,7 @@ $source = Invoke-RestMethod 'https://raw.githubusercontent.com/TedInVR/TVT-Teds_
 Open **Ted's Video Tool** from the Start menu. Windows installs per user in
 `%LOCALAPPDATA%\Programs\VFLR`. Sign out of Windows and back in if the dependency
 commands have yet to appear on the app's PATH after setup.
-Use **Help → Check for Updates** and close TVT when an update is queued.
+Use **Help → Check for Updates** and choose **Quit and Install Update**.
 
 
 For automatic subtitle searches, follow the OpenSubtitles setup in the
