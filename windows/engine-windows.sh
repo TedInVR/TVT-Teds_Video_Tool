@@ -12,6 +12,9 @@ case "$mode" in
         shift
         for path in "$@"; do arguments+=("$(winpath "$path")"); done
         ;;
+    batch-item)
+        arguments=("$1" "$2" "$(winpath "$3")" "$(winpath "$4")")
+        ;;
     trim)
         arguments=("$1" "$(winpath "$2")" "$(winpath "$3")" "$4" "$5")
         ;;

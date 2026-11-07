@@ -26,6 +26,32 @@ if [[ ! -x "$FFMPEG" || ! -x "$FFPROBE" ]]; then
     echo 'FFmpeg and ffprobe are required. See the TVT User Guide for setup.' >&2
     exit 1
 fi
+if [[ "$mode" == batch-item ]]; then
+    operation=$1
+    setting=$2
+    source=$3
+    directory=$4
+    case "$operation:$setting" in
+        upscale:1080) suffix=1080p; extension=mp4 ;;
+        upscale:2160) suffix=4K; extension=mp4 ;;
+        convert:mp4|convert:mkv|convert:mov|convert:webm|convert:avi|convert:ts)
+            suffix=Converted; extension=$setting ;;
+        audio:mp3|audio:m4a|audio:flac|audio:wav)
+            suffix=Audio; extension=$setting ;;
+        audio:silent) suffix=Silent; extension=mkv ;;
+        *) echo 'Unsupported batch setting.' >&2; exit 1 ;;
+    esac
+    name=$(basename "$source")
+    name=${name%.*}
+    base="$directory/$name $suffix"
+    destination="$base.$extension"
+    number=2
+    while [[ -e "$destination" || -L "$destination" ]]; do
+        destination="$base ($number).$extension"
+        number=$((number+1))
+    done
+    exec /bin/bash "$0" "$operation" "$setting" "$source" "$destination"
+fi
 work_dir=''
 output_stage=''
 reserved_output=''

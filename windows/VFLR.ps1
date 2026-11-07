@@ -282,12 +282,63 @@ function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSo
         convert='Converting video'; download='Downloading media'; audio='Processing audio'
         subtitles='Preparing subtitles'; layout='Changing video layout'; info='Reading media information'
         duration='Opening trim editor'; trim='Exporting selected clip'
-        'disc-scan'='Scanning disc backup'; 'disc-import'='Importing disc title'
+        'disc-scan'='Scanning disc backup'; 'disc-import'='Importing disc title'; 'batch-item'='Processing batch item'
     }
     $status.Text = $messages[$arguments[0]] + '... Please wait.'
     $banner.BackColor = [Drawing.Color]::FromArgb(199,224,255)
     $script:pulse = [Diagnostics.Stopwatch]::StartNew()
     $poll.Start()
+}
+$script:batch = $null
+function Finish-Batch {
+    $batch = $script:batch
+    $script:batch = $null
+    foreach ($button in $buttons) { $button.Enabled = $true }
+    $browse.Enabled = $true
+    $clear.Enabled = $script:sources.Count -gt 0
+    $count = $batch.Files.Count
+    $status.Text = "Batch finished. $($batch.Completed) of $count completed."
+    $banner.BackColor = if ($batch.Failures.Count) { [Drawing.Color]::FromArgb(255,211,209) } else { [Drawing.Color]::FromArgb(201,237,209) }
+    if ($batch.Completed) {
+        $script:resultPath = $batch.Directory
+        $reveal.Visible = $true
+    }
+    if ($batch.Failures.Count) {
+        $detail = ($batch.Failures | Select-Object -First 6) -join "`n`n"
+        if ($batch.Failures.Count -gt 6) { $detail += "`n`nAnd $($batch.Failures.Count - 6) more." }
+        Notice 'Batch finished with errors' $detail
+    }
+}
+function Start-BatchItem {
+    $batch = $script:batch
+    while ($batch.Index -lt $batch.Files.Count) {
+        $video = $batch.Files[$batch.Index]
+        try {
+            Start-Engine @('batch-item',$batch.Operation,$batch.Setting,$video,$batch.Directory)
+            $status.Text = "$($batch.Index + 1) of $($batch.Files.Count) - $([IO.Path]::GetFileName($video))"
+            return
+        } catch {
+            $batch.Failures.Add("$([IO.Path]::GetFileName($video)): $($_.Exception.Message)")
+            $batch.Index++
+        }
+    }
+    Finish-Batch
+}
+function Start-Batch($operation, $setting, [string[]]$videos) {
+    $dialog = New-Object Windows.Forms.FolderBrowserDialog
+    try {
+        $dialog.Description = "Choose one folder for all $($videos.Count) outputs."
+        $dialog.SelectedPath = [IO.Path]::GetDirectoryName($videos[0])
+        if ($dialog.ShowDialog($form) -ne 'OK') { return }
+        $directory = $dialog.SelectedPath
+    } finally { $dialog.Dispose() }
+    $script:batch = @{
+        Operation=$operation; Setting=$setting; Files=$videos; Directory=$directory
+        Index=0; Completed=0; Failures=(New-Object 'System.Collections.Generic.List[string]')
+    }
+    $script:resultPath = $null
+    $reveal.Visible = $false
+    Start-BatchItem
 }
 function Show-Report($title, $report) {
     $viewer = New-Object Windows.Forms.Form
@@ -326,6 +377,19 @@ $poll.Add_Tick({
     $code = $job.Process.ExitCode
     $job.Process.Dispose()
     $script:job = $null
+    if ($script:batch) {
+        $batch = $script:batch
+        if ($code -eq 0 -and $result) { $batch.Completed++ }
+        else {
+            $video = [IO.Path]::GetFileName($batch.Files[$batch.Index])
+            if ($errors.Length -gt 350) { $errors = $errors.Substring($errors.Length - 350) }
+            if (-not $errors) { $errors = 'No result was created.' }
+            $batch.Failures.Add("${video}: $errors")
+        }
+        $batch.Index++
+        Start-BatchItem
+        return
+    }
     foreach ($button in $buttons) { $button.Enabled = -not $script:queued }
     $browse.Enabled = -not $script:queued
     $clear.Enabled = (-not $script:queued -and $script:sources.Count -gt 0)
@@ -571,7 +635,15 @@ function Choose-Operation($operation) {
             return
         }
         $multiple = $operation -in @('Join Parts','Link Videos')
-        $files = @(Pick-Sources $multiple)
+        $supportsBatch = $operation -in @('Upscale Video','Convert Video','Extract or Remove Audio')
+        if ($supportsBatch) {
+            $files = if ($script:sources.Count) { @($script:sources) } else { @(Pick-Files $true) }
+            $files = @($files | Where-Object { $_ })
+            if (@($files | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }).Count) {
+                Notice 'Choose individual video files' 'Disc backup folders use Import Disc Backup.'
+                return
+            }
+        } else { $files = @(Pick-Sources $multiple) }
         if (-not $files.Count) { return }
         if ($multiple -and $files.Count -lt 2) { Notice $operation 'Choose at least two files.'; return }
         $file = $files[0]
@@ -606,6 +678,7 @@ function Choose-Operation($operation) {
                 if ($choice -lt 0) { return }
                 $label = @('1080p','4K')[$choice]
                 $height = @('1080','2160')[$choice]
+                if ($files.Count -gt 1) { Start-Batch 'upscale' $height $files; return }
                 $destination = Pick-Output $file 'mp4' $label
                 if ($destination) { Start-Engine @('upscale',$height,$file,$destination) }
             }
@@ -617,6 +690,7 @@ function Choose-Operation($operation) {
                 $choice = Pick-Index 'Extract first audio track or remove all audio' @('MP3','M4A','FLAC','WAV','Remove audio (MKV)')
                 if ($choice -lt 0) { return }
                 $format = @('mp3','m4a','flac','wav','silent')[$choice]
+                if ($files.Count -gt 1) { Start-Batch 'audio' $format $files; return }
                 $extension = @('mp3','m4a','flac','wav','mkv')[$choice]
                 $suffix = if ($format -eq 'silent') { 'Silent' } else { 'Audio' }
                 $destination = Pick-Output $file $extension $suffix
@@ -672,6 +746,7 @@ function Choose-Operation($operation) {
                 $choice = Pick-Index 'Convert Video - choose the output format' @($profiles | ForEach-Object { $_[1] })
                 if ($choice -lt 0) { return }
                 $extension = $profiles[$choice][0]
+                if ($files.Count -gt 1) { Start-Batch 'convert' $extension $files; return }
                 $destination = Pick-Output $file $extension 'Converted'
                 if ($destination) { Start-Engine @('convert',$extension,$file,$destination) }
             }

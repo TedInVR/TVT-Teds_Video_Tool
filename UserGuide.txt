@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.7
+Ted's Video Tool (TVT) 0.8.8
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -37,6 +37,15 @@ Audio and Subtitles, and Inspect and Download. A pulsing blue banner
 names the active job. Green confirms completion and red marks a failure.
 After an export, click Show Result to reveal the file in Finder or
 File Explorer. The banner indicates activity without estimating progress.
+
+Batch processing
+Drop or browse for multiple videos, then choose Upscale Video, Convert
+Video, or Extract or Remove Audio. Pick the settings once and select a
+destination folder. TVT works through the files one at a time, shows
+which file is running, and reports any failures at the end. Other files
+continue if one fails. Existing outputs are kept; TVT adds a number
+when two output names would match. Show Result reveals the output folder.
+With one video, these tools still ask for a specific output filename.
 
 Import Disc Backup
 Install and open MakeMKV once. Drop an ISO, a VIDEO_TS or BDMV folder,

@@ -699,6 +699,62 @@ final class TVT: NSObject, NSApplicationDelegate {
         }
     }
 
+    func batchSources() -> [URL]? {
+        let selected: [URL]
+        if sources.isEmpty {
+            guard let picked = files("Choose one or more source videos.", multiple: true) else { return nil }
+            selected = picked
+        } else {
+            selected = sources
+        }
+        let videos = selected.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+        if videos.count != selected.count {
+            alert("Choose individual video files", "Disc backup folders use Import Disc Backup.")
+            return nil
+        }
+        return videos.isEmpty ? nil : videos
+    }
+
+    func batchExport(_ operation: String, setting: String, videos: [URL]) {
+        guard !processing, !queued else { return }
+        let panel = NSOpenPanel()
+        panel.message = "Choose one folder for all \(videos.count) outputs."
+        panel.prompt = "Start Batch"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = videos[0].deletingLastPathComponent()
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        let script = resources.appendingPathComponent("engine.sh")
+        var failures: [String] = []
+        beginProcessing("Preparing batch…")
+
+        func next(_ index: Int) {
+            if index == videos.count {
+                let completed = videos.count - failures.count
+                self.endProcessing("Batch finished. \(completed) of \(videos.count) completed.", success: failures.isEmpty)
+                if completed > 0 {
+                    self.result = folder
+                    self.revealButton.isHidden = false
+                }
+                if !failures.isEmpty {
+                    self.alert("Batch finished with errors", failures.prefix(6).joined(separator: "\n\n")
+                               + (failures.count > 6 ? "\n\n… and \(failures.count - 6) more." : ""))
+                }
+                return
+            }
+            let video = videos[index]
+            self.status.stringValue = "\(index + 1) of \(videos.count) · \(video.lastPathComponent)"
+            self.execute(script, ["batch-item", operation, setting, video.path, folder.path]) { success, output in
+                if !success || output.isEmpty {
+                    failures.append(video.lastPathComponent + ": " + String(output.suffix(350)))
+                }
+                next(index + 1)
+            }
+        }
+        next(0)
+    }
+
     func mediaTime(_ value: Double) -> String {
         String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), value)
     }
@@ -909,12 +965,15 @@ final class TVT: NSObject, NSApplicationDelegate {
     }
 
     @objc func upscale() {
-        guard let source = sourceFiles("Choose the source video.", multiple: false)?.first else { return }
+        guard let videos = batchSources() else { return }
         let choice = alert("Upscale Video", "Fit the picture within the selected size while keeping its proportions.", ["1080p", "4K", "Cancel"])
         guard choice == 0 || choice == 1 else { return }
+        let target = choice == 0 ? "1080" : "2160"
+        if videos.count > 1 { batchExport("upscale", setting: target, videos: videos); return }
+        let source = videos[0]
         let name = source.deletingPathExtension().lastPathComponent + (choice == 0 ? " 1080p.mp4" : " 4K.mp4")
         guard let output = save(name, near: source) else { return }
-        export(["upscale", choice == 0 ? "1080" : "2160", source.path, output])
+        export(["upscale", target, source.path, output])
     }
 
     let stereoLayouts = [("Full Side-by-Side", "sbsl"), ("Half Side-by-Side", "sbs2l"),
@@ -959,10 +1018,12 @@ final class TVT: NSObject, NSApplicationDelegate {
     @objc func audioTools() {
         let options = [("MP3 audio", "mp3"), ("M4A audio", "m4a"), ("FLAC audio", "flac"),
                        ("WAV audio", "wav"), ("Remove audio (MKV)", "silent")]
-        guard let source = sourceFiles("Choose the source video.", multiple: false)?.first,
+        guard let videos = batchSources(),
               let choice = chooseOption("Extract or Remove Audio", options.map { $0.0 },
                                         detail: "Audio extraction uses the first audio track.") else { return }
         let format = options[choice].1
+        if videos.count > 1 { batchExport("audio", setting: format, videos: videos); return }
+        let source = videos[0]
         let ext = format == "silent" ? "mkv" : format
         let name = source.deletingPathExtension().lastPathComponent + (format == "silent" ? " Silent." : " Audio.") + ext
         guard let output = save(name, near: source, fileExtension: ext) else { return }
@@ -1029,7 +1090,7 @@ final class TVT: NSObject, NSApplicationDelegate {
     }
 
     @objc func convertVideo() {
-        guard let source = sourceFiles("Choose any video supported by FFmpeg.", multiple: false)?.first else { return }
+        guard let videos = batchSources() else { return }
         let profiles = conversionProfiles()
         guard !profiles.isEmpty else { return }
         let dialog = NSAlert()
@@ -1042,6 +1103,8 @@ final class TVT: NSObject, NSApplicationDelegate {
         dialog.addButton(withTitle: "Cancel")
         guard dialog.runModal() == .alertFirstButtonReturn else { return }
         let format = profiles[popup.indexOfSelectedItem][0]
+        if videos.count > 1 { batchExport("convert", setting: format, videos: videos); return }
+        let source = videos[0]
         let name = source.deletingPathExtension().lastPathComponent + " Converted." + format
         guard let output = save(name, near: source, fileExtension: format) else { return }
         export(["convert", format, source.path, output])
