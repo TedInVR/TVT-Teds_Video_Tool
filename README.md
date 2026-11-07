@@ -68,3 +68,13 @@ The [SeedVR2 model](https://huggingface.co/ByteDance-Seed/SeedVR2-3B) and
 [standalone integration](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler)
 are Apache 2.0 projects. TVT downloads the runtime and model separately
 on the user's Mac.
+
+
+## Import disc backups
+
+Choose **Edit and Assemble → Import Disc Backup** for DVD/Blu-ray ISO
+images or VIDEO_TS/BDMV folders. Install [MakeMKV](https://www.makemkv.com/download/)
+separately. MVC-to-Side-by-Side also uses the separate
+[mvc2sbs](https://pkg.go.dev/github.com/brunoga/pipeliner/cmd/mvc2sbs)
+toolchain. On Windows this importer uses the Python dependency listed above.
+See the [User Guide](UserGuide.txt) for choosing titles and 3D layouts.

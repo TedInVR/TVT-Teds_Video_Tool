@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.5
+Ted's Video Tool (TVT) 0.8.6
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -37,6 +37,36 @@ Audio and Subtitles, and Inspect and Download. A pulsing blue banner
 names the active job. Green confirms completion and red marks a failure.
 After an export, click Show Result to reveal the file in Finder or
 File Explorer. The banner indicates activity without estimating progress.
+
+Import Disc Backup
+Install and open MakeMKV once. Drop an ISO, a VIDEO_TS or BDMV folder,
+a folder containing one of those folders, or VIDEO_TS.IFO / index.bdmv
+onto TVT. Choose Edit and Assemble > Import Disc Backup. TVT scans
+the disc. If there are several titles, the longest is suggested;
+check the running time for alternate cuts, episodes or extras.
+
+Original MKV copies the title using a profile that requests original
+audio, subtitles, chapters and MVC when present. Choose it for 2D or
+if you are unsure how the picture is laid out. For known packed 3D,
+choose Full or Half Over-Under to convert to Full Side-by-Side, or
+Already Side-by-Side to copy and tag the existing picture. If unsure,
+export Original MKV and look at a frame with Trim Clip. Two images
+one above the other indicate Over-Under. Two side by side indicate SBS.
+Disc subtitle tracks remain selectable, with their original placement.
+
+If the title reports MVC Blu-ray 3D, choose MVC Blu-ray 3D to Full
+Side-by-Side. This option needs the separate mvc2sbs command and its
+dependencies. Put mvc2sbs on PATH and run mvc2sbs --check in Terminal
+or PowerShell. It lists missing tools such as tsMuxeR, edge264, x264
+and mkvmerge. See pkg.go.dev/github.com/brunoga/pipeliner/cmd/mvc2sbs.
+If those tools are unavailable, choose Original MKV to retain MVC;
+that file can be opened separately in your MVC-to-SBS tool.
+
+Choose an output location with enough room for the extracted title
+and a second file if converting 3D. TVT removes temporary files after
+the import. Menus are not included. MakeMKV must be working under its
+own licensing and disc support. No MakeMKV license is bundled with TVT.
+
 
 Trim Clip
 Load a video and choose Trim Clip in Edit and Assemble. Scrub the

@@ -8,7 +8,7 @@ $profiles = @(Get-Content (Join-Path $root ConversionProfiles.tsv) | ForEach-Obj
 $form = New-Object Windows.Forms.Form
 $form.Text = "Ted's Video Tool (TVT) $version"
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object Drawing.Size(632, 508)
+$form.ClientSize = New-Object Drawing.Size(632, 543)
 $menu = New-Object Windows.Forms.MenuStrip
 $helpMenu = $menu.Items.Add('Help')
 $guide = $helpMenu.DropDownItems.Add('TVT User Guide')
@@ -59,10 +59,10 @@ $script:sources = @()
 
 $buttons = @()
 $groups = @(
-    @{ Title = 'Edit and Assemble'; X = 18; Y = 127; Tools = @('Trim Clip','Split Movie','Join Parts','Link Videos') },
+    @{ Title = 'Edit and Assemble'; X = 18; Y = 127; Tools = @('Trim Clip','Split Movie','Join Parts','Link Videos','Import Disc Backup') },
     @{ Title = 'Picture and Format'; X = 322; Y = 127; Tools = @('Upscale Video','Convert Video','Change Aspect or Stereo Layout') },
-    @{ Title = 'Audio and Subtitles'; X = 18; Y = 310; Tools = @('Extract or Remove Audio','Add Subtitles') },
-    @{ Title = 'Inspect and Download'; X = 322; Y = 310; Tools = @('MediaInfo','Download Online') }
+    @{ Title = 'Audio and Subtitles'; X = 18; Y = 345; Tools = @('Extract or Remove Audio','Add Subtitles') },
+    @{ Title = 'Inspect and Download'; X = 322; Y = 345; Tools = @('MediaInfo','Download Online') }
 )
 foreach ($group in $groups) {
     $box = New-Object Windows.Forms.GroupBox
@@ -80,7 +80,7 @@ foreach ($group in $groups) {
 }
 
 $banner = New-Object Windows.Forms.Panel
-$banner.SetBounds(18, 437, 595, 47)
+$banner.SetBounds(18, 472, 595, 47)
 $banner.BackColor = [Drawing.Color]::FromArgb(235,235,235)
 $status = New-Object Windows.Forms.Label
 $status.SetBounds(11, 14, 450, 23)
@@ -101,7 +101,7 @@ $form.Controls.Add($banner)
 
 function Set-Sources([string[]]$paths) {
     if ($script:job -or $script:queued) { return }
-    $valid = @($paths | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -Unique)
+    $valid = @($paths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -Unique)
     if (-not $valid.Count) { return }
     $script:sources = $valid
     $sourcesLabel.Text = if ($valid.Count -eq 1) { [IO.Path]::GetFileName($valid[0]) } else { "$($valid.Count) files loaded" }
@@ -229,26 +229,32 @@ function Find-Tool([string]$name) {
 function New-EngineProcess([string[]]$arguments) {
     $process = New-Object Diagnostics.Process
     $info = $process.StartInfo
-    $info.FileName = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
-    if (-not (Test-Path -LiteralPath $info.FileName)) {
-        $info.FileName = Join-Path $env:LOCALAPPDATA 'Programs\Git\bin\bash.exe'
-    }
-    if (-not (Test-Path -LiteralPath $info.FileName)) { throw 'Git for Windows is required. See the TVT User Guide.' }
-    if ($arguments[0] -eq 'info') {
-        $info.EnvironmentVariables['VFLR_MEDIAINFO'] = (Find-Tool 'mediainfo.exe').Replace('\','/')
+    if ($arguments[0] -in @('disc-scan','disc-import')) {
+        $info.FileName = Find-Tool 'python.exe'
+        $info.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
+        $info.Arguments = (@((Join-Path $root 'disc_tools.py')) + $arguments | ForEach-Object { Quote-Arg $_ }) -join ' '
     } else {
-        [void](Find-Tool 'ffmpeg.exe')
-        [void](Find-Tool 'ffprobe.exe')
-        if ($arguments[0] -eq 'download') {
-            $info.EnvironmentVariables['VFLR_YTDLP'] = (Find-Tool 'yt-dlp.exe').Replace('\','/')
+        $info.FileName = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+        if (-not (Test-Path -LiteralPath $info.FileName)) {
+            $info.FileName = Join-Path $env:LOCALAPPDATA 'Programs\Git\bin\bash.exe'
         }
-        if ($arguments[0] -eq 'subtitles' -and ($arguments[3] -ne 'flat' -or $arguments[5] -eq 'online')) {
-            $info.EnvironmentVariables['VFLR_PYTHON'] = (Find-Tool 'python.exe').Replace('\','/')
-            $info.EnvironmentVariables['VFLR_SUBTITLE_CONFIG'] = Join-Path (Split-Path $root) 'OpenSubtitles.json'
+        if (-not (Test-Path -LiteralPath $info.FileName)) { throw 'Git for Windows is required. See the TVT User Guide.' }
+        if ($arguments[0] -eq 'info') {
+            $info.EnvironmentVariables['VFLR_MEDIAINFO'] = (Find-Tool 'mediainfo.exe').Replace('\','/')
+        } else {
+            [void](Find-Tool 'ffmpeg.exe')
+            [void](Find-Tool 'ffprobe.exe')
+            if ($arguments[0] -eq 'download') {
+                $info.EnvironmentVariables['VFLR_YTDLP'] = (Find-Tool 'yt-dlp.exe').Replace('\','/')
+            }
+            if ($arguments[0] -eq 'subtitles' -and ($arguments[3] -ne 'flat' -or $arguments[5] -eq 'online')) {
+                $info.EnvironmentVariables['VFLR_PYTHON'] = (Find-Tool 'python.exe').Replace('\','/')
+                $info.EnvironmentVariables['VFLR_SUBTITLE_CONFIG'] = Join-Path (Split-Path $root) 'OpenSubtitles.json'
+            }
         }
+        $scriptFile = (Join-Path $PSScriptRoot 'engine-windows.sh').Replace('\','/')
+        $info.Arguments = (@('--noprofile','--norc',$scriptFile) + $arguments | ForEach-Object { Quote-Arg $_ }) -join ' '
     }
-    $scriptFile = (Join-Path $PSScriptRoot 'engine-windows.sh').Replace('\','/')
-    $info.Arguments = (@('--noprofile','--norc',$scriptFile) + $arguments | ForEach-Object { Quote-Arg $_ }) -join ' '
     $info.CreateNoWindow = $true
     $info.UseShellExecute = $false
     $info.RedirectStandardOutput = $true
@@ -262,10 +268,11 @@ function New-EngineProcess([string[]]$arguments) {
         Errors = $process.StandardError.ReadToEndAsync()
     }
 }
-function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSource) {
+function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSource, [string]$discSource) {
     $script:job = New-EngineProcess $arguments
     $script:job.Report = $reportName
     $script:job.TrimSource = $trimSource
+    $script:job.DiscSource = $discSource
     foreach ($button in $buttons) { $button.Enabled = $false }
     $browse.Enabled = $false
     $clear.Enabled = $false
@@ -276,6 +283,7 @@ function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSo
         convert='Converting video'; download='Downloading media'; audio='Processing audio'
         subtitles='Preparing subtitles'; layout='Changing video layout'; info='Reading media information'
         duration='Opening trim editor'; trim='Exporting selected clip'
+        'disc-scan'='Scanning disc backup'; 'disc-import'='Importing disc title'
     }
     $status.Text = $messages[$arguments[0]] + '... Please wait.'
     $banner.BackColor = [Drawing.Color]::FromArgb(199,224,255)
@@ -315,6 +323,7 @@ $poll.Add_Tick({
     $errors = $job.Errors.Result.Trim()
     $report = $job.Report
     $trimSource = $job.TrimSource
+    $discSource = $job.DiscSource
     $code = $job.Process.ExitCode
     $job.Process.Dispose()
     $script:job = $null
@@ -328,7 +337,10 @@ $poll.Add_Tick({
         Notice 'TVT' $errors
     } else {
         $banner.BackColor = [Drawing.Color]::FromArgb(201,237,209)
-        if ($trimSource) {
+        if ($discSource) {
+            try { Complete-DiscScan $discSource @(ConvertFrom-Json $result) }
+            catch { Notice 'Disc import failed' $_.Exception.Message }
+        } elseif ($trimSource) {
             try {
                 $duration = [double]::Parse($result, [Globalization.CultureInfo]::InvariantCulture)
                 if ($duration -le 0 -or [double]::IsInfinity($duration) -or [double]::IsNaN($duration)) { throw 'No readable video duration.' }
@@ -495,8 +507,59 @@ function Show-TrimEditor([string]$file, [double]$duration) {
     }
 }
 
+function Complete-DiscScan($file, $titles) {
+    $titles = @($titles | ForEach-Object { $_ })
+    if (-not $titles.Count) { throw 'No playable titles found.' }
+    $status.Text = 'Disc scan complete.'
+    $choice = 0
+    if ($titles.Count -gt 1) {
+        $labels = @($titles | ForEach-Object {
+            $flag = if ($_.mvc) { ' - MVC 3D' } else { '' }
+            "Title $($_.id) - $($_.duration) - $($_.name)$flag"
+        })
+        $choice = Pick-Index 'Choose a title (longest shown first)' $labels
+        if ($choice -lt 0) { return }
+    }
+    $title = $titles[$choice]
+    $default = if ($title.mvc) { 1 } else { 0 }
+    $outputChoices = @(
+        'Original MKV (2D or keep original 3D)', 'MVC Blu-ray 3D to Full Side-by-Side',
+        'Full Over-Under to Full Side-by-Side', 'Half Over-Under to Full Side-by-Side',
+        'Already Full Side-by-Side (tag only)', 'Already Half Side-by-Side (tag only)'
+    )
+    if ($title.mvc) { $outputChoices = $outputChoices[0..1] }
+    $format = Pick-Index 'Choose MKV output (Original if unsure)' $outputChoices $default
+    if ($format -lt 0) { return }
+    $destination = Pick-Output $file 'mkv' "Title $($title.id)"
+    if ($destination) {
+        $mode = @('original','mvc','ou','half-ou','sbs','half-sbs')[$format]
+        Start-Engine @('disc-import',$file,"$($title.id)",$mode,$destination)
+    }
+}
+function Open-DiscBackup {
+    $loaded = @($script:sources | Where-Object { $_ -match '\.(iso|ifo|bdmv)$' -or (Test-Path -LiteralPath $_ -PathType Container) })
+    if ($loaded.Count -eq 1) { $source = $loaded[0] }
+    elseif ($loaded.Count -gt 1) {
+        $choice = Pick-Index 'Choose a loaded disc backup' $loaded
+        if ($choice -lt 0) { return }
+        $source = $loaded[$choice]
+    } else {
+        $kind = Pick-Index 'Choose a disc backup' @('ISO or disc index file','VIDEO_TS or BDMV folder')
+        if ($kind -lt 0) { return }
+        if ($kind -eq 0) { $source = @(Pick-Files $false) | Select-Object -First 1 }
+        else {
+            $dialog = New-Object Windows.Forms.FolderBrowserDialog
+            try {
+                if ($dialog.ShowDialog($form) -eq 'OK') { $source = $dialog.SelectedPath }
+            } finally { $dialog.Dispose() }
+        }
+    }
+    if ($source) { Start-Engine @('disc-scan',$source) -discSource $source }
+}
+
 function Choose-Operation($operation) {
     try {
+        if ($operation -eq 'Import Disc Backup') { Open-DiscBackup; return }
         if ($operation -eq 'Download Online') {
             $url = Text-Input 'Paste an online video page URL'
             if (-not $url) { return }

@@ -7,7 +7,7 @@ version=$(cat VERSION)
 contents="$app/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 MACOSX_DEPLOYMENT_TARGET=12.0 /usr/bin/xcrun swiftc -O VFLR.swift -o "$contents/MacOS/TVT"
-cp engine.sh update.sh UserGuide.txt VFLR.icns ConversionProfiles.tsv subtitle_tools.py restore.sh "$contents/Resources/"
+cp engine.sh update.sh UserGuide.txt VFLR.icns ConversionProfiles.tsv subtitle_tools.py restore.sh disc_tools.py "$contents/Resources/"
 cat > "$contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

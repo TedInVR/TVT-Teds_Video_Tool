@@ -400,7 +400,7 @@ final class TVT: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = menu
         NSApp.helpMenu = help.submenu
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 460),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 487),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Ted's Video Tool"
         window.isReleasedWhenClosed = false
@@ -454,7 +454,8 @@ final class TVT: NSObject, NSApplicationDelegate {
 
         let editing = toolGroup("Edit and Assemble", [
             ("Trim Clip", #selector(trimClip)), ("Split Movie", #selector(split)),
-            ("Join Parts", #selector(join)), ("Link Videos", #selector(link))
+            ("Join Parts", #selector(join)), ("Link Videos", #selector(link)),
+            ("Import Disc Backup", #selector(importDiscBackup))
         ])
         let picture = toolGroup("Picture and Format", [
             ("Upscale Video", #selector(upscale)), ("Convert Video", #selector(convertVideo)),
@@ -545,7 +546,8 @@ final class TVT: NSObject, NSApplicationDelegate {
         var seen: Set<URL> = []
         let valid = urls.map { $0.standardizedFileURL }.filter {
             guard $0.isFileURL, seen.insert($0).inserted else { return false }
-            return (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            guard let info = try? $0.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey]) else { return false }
+            return info.isRegularFile == true || info.isDirectory == true
         }
         guard !valid.isEmpty else { return false }
         sources = valid
@@ -603,11 +605,12 @@ final class TVT: NSObject, NSApplicationDelegate {
         return dialog.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
     }
 
-    func files(_ prompt: String, multiple: Bool, directory: URL? = nil) -> [URL]? {
+    func files(_ prompt: String, multiple: Bool, directory: URL? = nil, allowFolders: Bool = false) -> [URL]? {
         let panel = NSOpenPanel()
         panel.message = prompt
         panel.directoryURL = directory
         panel.allowsMultipleSelection = multiple
+        panel.canChooseDirectories = allowFolders
         return panel.runModal() == .OK ? panel.urls : nil
     }
 
@@ -623,8 +626,13 @@ final class TVT: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
             let pipe = Pipe()
-            task.executableURL = URL(fileURLWithPath: "/bin/bash")
+            task.executableURL = URL(fileURLWithPath: script.pathExtension == "py" ? "/usr/bin/python3" : "/bin/bash")
             task.arguments = [script.path] + arguments
+            if script.pathExtension == "py" {
+                var environment = ProcessInfo.processInfo.environment
+                environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
+                task.environment = environment
+            }
             task.standardOutput = pipe
             task.standardError = pipe
             do {
@@ -784,6 +792,68 @@ final class TVT: NSObject, NSApplicationDelegate {
                     self.alert("AI restoration failed", detail.isEmpty ? "The model did not create a result." : detail)
                     if let editor = editor { self.window.beginSheet(editor.window) }
                 }
+            }
+        }
+    }
+
+    struct DiscTitle: Decodable {
+        let id: Int
+        let name: String
+        let duration: String
+        let mvc: Bool
+    }
+
+    @objc func importDiscBackup() {
+        let loaded = sources.filter {
+            ["iso", "ifo", "bdmv"].contains($0.pathExtension.lowercased()) ||
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        let source: URL
+        if loaded.count == 1 {
+            source = loaded[0]
+        } else if !loaded.isEmpty {
+            let labels = loaded.enumerated().map { "\($0.offset + 1). \($0.element.lastPathComponent)" }
+            guard let choice = chooseOption("Choose a loaded disc backup", labels) else { return }
+            source = loaded[choice]
+        } else {
+            guard let picked = files("Choose an ISO, VIDEO_TS or BDMV folder, or its index file.", multiple: false, allowFolders: true)?.first else { return }
+            source = picked
+        }
+        let script = resources.appendingPathComponent("disc_tools.py")
+        beginProcessing("Scanning disc backup… Please wait.")
+        execute(script, ["disc-scan", source.path]) { success, output in
+            guard success, let titles = try? JSONDecoder().decode([DiscTitle].self, from: Data(output.utf8)), !titles.isEmpty else {
+                self.endProcessing("Could not scan disc backup.", success: false)
+                self.alert("Disc scan failed", String(output.suffix(2400)))
+                return
+            }
+            self.endProcessing("Disc scan complete.", success: true)
+            let labels = titles.map { "Title \($0.id) · \($0.duration) · \($0.name)" + ($0.mvc ? " · MVC 3D" : "") }
+            let choice: Int
+            if titles.count == 1 { choice = 0 }
+            else {
+                guard let selected = self.chooseOption("Choose a title", labels,
+                    detail: "The longest title is selected first. Check the running time for episodes, extras, or alternate cuts.") else { return }
+                choice = selected
+            }
+            let title = titles[choice]
+            let names = ["Original MKV (2D or keep original 3D)",
+                         "MVC Blu-ray 3D → Full Side-by-Side", "Full Over-Under → Full Side-by-Side",
+                         "Half Over-Under → Full Side-by-Side", "Already Full Side-by-Side (tag only)",
+                         "Already Half Side-by-Side (tag only)"]
+            let modes = ["original", "mvc", "ou", "half-ou", "sbs", "half-sbs"]
+            let note = title.mvc ? "MakeMKV reports an MVC 3D track. Side-by-Side conversion requires mvc2sbs."
+                                 : "Choose Original MKV if you are unsure. Preview it with Trim Clip before selecting a packed 3D layout."
+            let outputChoices = title.mvc ? Array(names.prefix(2)) : names
+            guard let format = self.chooseOption("Choose MKV output", outputChoices, detail: note, selected: title.mvc ? 1 : 0),
+                  let destination = self.save("Disc Title \(title.id).mkv", near: source, fileExtension: "mkv") else { return }
+            self.beginProcessing("Importing disc title… Please wait.")
+            self.execute(script, ["disc-import", source.path, String(title.id), modes[format], destination]) { imported, detail in
+                self.endProcessing(imported ? "Finished. Your disc title is ready." : "Disc import failed.", success: imported)
+                if imported {
+                    self.result = URL(fileURLWithPath: destination)
+                    self.revealButton.isHidden = false
+                } else { self.alert("Could not import disc title", String(detail.suffix(2400))) }
             }
         }
     }
