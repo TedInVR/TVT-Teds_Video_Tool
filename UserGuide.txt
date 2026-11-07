@@ -1,0 +1,41 @@
+VFLR 0.3.0 — Video Fix Link Restore
+
+Install and update
+The first installation builds VFLR.app in Applications. It requires Apple
+Command Line Tools and uses the Homebrew FFmpeg and ffprobe already installed
+at /opt/homebrew/bin. VFLR Development, also in Applications, holds temporary
+update files. Completed installations remove those files.
+
+Use Help > Check for Updates for a manual check. VFLR also checks on launch
+and every 15 minutes while open. Choose Download Update when prompted.
+After VFLR says the update is ready, quit the app. It installs after VFLR
+has closed. Reopen VFLR from Applications. Help > VFLR User Guide opens
+the guide included with the installed version.
+
+Split Movie
+Pick a video and choose 2–12 roughly equal parts. VFLR splits at nearby
+keyframes, copying the first video stream and all audio tracks without
+re-encoding. The MP4 parts are saved in a folder beside the original.
+You can also drag one video onto the app to split it.
+
+Join Parts
+Choose all matching numbered parts. VFLR sorts the numbers and shows the
+order before copying the streams into one MP4. Choose each part explicitly
+if the Finder drop list is incomplete.
+
+Link Videos
+Select two or more clips and pick their playback order. The first clip sets
+the frame size and rate. Different shapes are fitted with black padding.
+VFLR includes the full clips, including credits and recaps. Each clip
+contributes its first audio track in stereo or silence if it has no audio.
+The output is an H.264 MP4 with AAC audio.
+
+Upscale Video
+Choose 1080p (up to 1920×1080) or 4K (up to 3840×2160). VFLR uses Lanczos
+scaling and preserves the picture proportions. For example, 4:3 video
+becomes 1440×1080 at 1080p. Exports use H.264 MP4 and retain audio tracks
+as AAC. Link and Upscale omit subtitles.
+
+Finder reveals completed exports. Video exports go where you choose or,
+for Split and Join Parts, beside the inputs. App and update files live
+in Applications.
