@@ -260,9 +260,15 @@ function New-EngineProcess([string[]]$arguments) {
     $info.RedirectStandardError = $true
     $info.StandardOutputEncoding = [Text.Encoding]::UTF8
     $info.StandardErrorEncoding = [Text.Encoding]::UTF8
+    $progress = $null
+    if ($arguments[0] -in @('batch-item','upscale','convert','audio','layout','trim')) {
+        $progress = Join-Path ([IO.Path]::GetTempPath()) ('TVT-' + [guid]::NewGuid())
+        $info.EnvironmentVariables['TVT_PROGRESS_FILE'] = $progress.Replace('\','/')
+    }
     [void]$process.Start()
     @{
         Process = $process
+        Progress = $progress
         Output = $process.StandardOutput.ReadToEndAsync()
         Errors = $process.StandardError.ReadToEndAsync()
     }
@@ -284,7 +290,13 @@ function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSo
         duration='Opening trim editor'; trim='Exporting selected clip'
         'disc-scan'='Scanning disc backup'; 'disc-import'='Importing disc title'; 'batch-item'='Processing batch item'
     }
-    $status.Text = $messages[$arguments[0]] + '... Please wait.'
+    $job.Label = $messages[$arguments[0]] + '... Please wait.'
+    if ($job.Progress -and $arguments[0] -ne 'batch-item') {
+        $index = if ($arguments[0] -eq 'layout') { 3 } else { 2 }
+        $job.Label = $messages[$arguments[0]] + ' - ' + [IO.Path]::GetFileName($arguments[$index])
+    }
+    $job.NextProgress = 0
+    $status.Text = $job.Label
     $banner.BackColor = [Drawing.Color]::FromArgb(199,224,255)
     $script:pulse = [Diagnostics.Stopwatch]::StartNew()
     $poll.Start()
@@ -315,7 +327,8 @@ function Start-BatchItem {
         $video = $batch.Files[$batch.Index]
         try {
             Start-Engine @('batch-item',$batch.Operation,$batch.Setting,$video,$batch.Directory)
-            $status.Text = "$($batch.Index + 1) of $($batch.Files.Count) - $([IO.Path]::GetFileName($video))"
+            $job.Label = "Video $($batch.Index + 1) of $($batch.Files.Count) - $([IO.Path]::GetFileName($video))"
+            $status.Text = $job.Label
             return
         } catch {
             $batch.Failures.Add("$([IO.Path]::GetFileName($video)): $($_.Exception.Message)")
@@ -357,11 +370,38 @@ function Show-Report($title, $report) {
     $viewer.Controls.AddRange(@($text,$copy))
     $viewer.Show($form)
 }
+function Update-EncodeProgress($job) {
+    if (-not $job.Progress -or $script:pulse.ElapsedMilliseconds -lt $job.NextProgress) { return }
+    $job.NextProgress = $script:pulse.ElapsedMilliseconds + 500
+    try {
+        $duration = [double]::Parse([IO.File]::ReadAllText("$($job.Progress).duration"), [Globalization.CultureInfo]::InvariantCulture)
+        if ($duration -le 0) { return }
+        $stream = [IO.File]::Open($job.Progress, 'Open', 'Read', 'ReadWrite')
+        try {
+            $offset = [Math]::Max(0, $stream.Length - 4096)
+            [void]$stream.Seek($offset, 'Begin')
+            $buffer = New-Object byte[] 4096
+            $count = $stream.Read($buffer, 0, $buffer.Length)
+        } finally { $stream.Dispose() }
+        $data = [Text.Encoding]::UTF8.GetString($buffer, 0, $count)
+        $timeMatches = [regex]::Matches($data, '(?m)^out_time_us=(-?\d+)\r?\n')
+        if ($timeMatches.Count) {
+            $microseconds = [double]$timeMatches[$timeMatches.Count - 1].Groups[1].Value
+            $percent = [Math]::Floor([Math]::Min(99, [Math]::Max(0, 100 * $microseconds / ($duration * 1000000))))
+            $status.Text = "$percent% - $($job.Label)"
+        }
+    } catch [IO.IOException] {
+        # FFmpeg or ffprobe may not have written the status files yet.
+    } catch [FormatException] {
+        # A duration may still be in the middle of being written.
+    }
+}
 $script:job = $null
 $poll = New-Object Windows.Forms.Timer
 $poll.Interval = 65
 $poll.Add_Tick({
     if (-not $job.Process.HasExited -or -not $job.Output.IsCompleted -or -not $job.Errors.IsCompleted) {
+        Update-EncodeProgress $job
         if (-not [Windows.Forms.SystemInformation]::HighContrast) {
             $phase = (1 - [Math]::Cos($script:pulse.Elapsed.TotalSeconds * 3)) / 2
             $banner.BackColor = [Drawing.Color]::FromArgb([int](199 - 50 * $phase), [int](224 - 25 * $phase), 255)
@@ -376,6 +416,9 @@ $poll.Add_Tick({
     $discSource = $job.DiscSource
     $code = $job.Process.ExitCode
     $job.Process.Dispose()
+    if ($job.Progress) {
+        Remove-Item -LiteralPath $job.Progress, "$($job.Progress).duration" -ErrorAction SilentlyContinue
+    }
     $script:job = $null
     if ($script:batch) {
         $batch = $script:batch

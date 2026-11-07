@@ -52,6 +52,24 @@ if [[ "$mode" == batch-item ]]; then
     done
     exec /bin/bash "$0" "$operation" "$setting" "$source" "$destination"
 fi
+progress_options=()
+if [[ -n "${TVT_PROGRESS_FILE:-}" ]]; then
+    progress_source=''
+    case "$mode" in
+        upscale|convert|audio) progress_source=$2 ;;
+        layout) progress_source=$3 ;;
+    esac
+    if [[ "$mode" == trim ]]; then
+        duration=$(awk -v start="$4" -v end="$5" 'BEGIN { if (end > start) printf "%.6f", end-start }')
+    elif [[ -n "$progress_source" ]]; then
+        duration=$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$progress_source" 2>/dev/null || true)
+    else
+        duration=''
+    fi
+    if [[ "$duration" =~ ^[0-9]+([.][0-9]+)?$ ]] && printf '%s\n' "$duration" > "$TVT_PROGRESS_FILE.duration"; then
+        progress_options=(-progress "$TVT_PROGRESS_FILE" -nostats)
+    fi
+fi
 work_dir=''
 output_stage=''
 reserved_output=''
@@ -71,7 +89,7 @@ run_ffmpeg() {
         done
         set -- "${converted[@]}"
     fi
-    if ! "$FFMPEG" -hide_banner -nostdin -loglevel warning "$@" 2>"$work_dir/error.log"; then
+    if ! "$FFMPEG" -hide_banner -nostdin -loglevel warning ${progress_options[@]+"${progress_options[@]}"} "$@" 2>"$work_dir/error.log"; then
         echo 'FFmpeg could not finish. Originals were not changed. Details:' >&2
         tail -c 3000 "$work_dir/error.log" >&2
         exit 1

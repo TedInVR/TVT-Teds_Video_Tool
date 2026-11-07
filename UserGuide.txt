@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.8
+Ted's Video Tool (TVT) 0.8.9
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -42,10 +42,13 @@ Batch processing
 Drop or browse for multiple videos, then choose Upscale Video, Convert
 Video, or Extract or Remove Audio. Pick the settings once and select a
 destination folder. TVT works through the files one at a time, shows
-which file is running, and reports any failures at the end. Other files
+the current file, its number in the batch, and its estimated encoding
+percentage when available. TVT reports any failures at the end. Other files
 continue if one fails. Existing outputs are kept; TVT adds a number
 when two output names would match. Show Result reveals the output folder.
 With one video, these tools still ask for a specific output filename.
+The percentage describes the current file and may pause while TVT
+finishes saving it. Trim Clip and layout exports also show an estimate.
 
 Import Disc Backup
 Install and open MakeMKV once. Drop an ISO, a VIDEO_TS or BDMV folder,

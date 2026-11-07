@@ -613,15 +613,18 @@ final class TVT: NSObject, NSApplicationDelegate {
         return panel.runModal() == .OK ? panel.url?.path : nil
     }
 
-    func execute(_ script: URL, _ arguments: [String], done: @escaping (Bool, String) -> Void) {
+    func execute(_ script: URL, _ arguments: [String], progressFile: URL? = nil, done: @escaping (Bool, String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
             let pipe = Pipe()
             task.executableURL = URL(fileURLWithPath: script.pathExtension == "py" ? "/usr/bin/python3" : "/bin/bash")
             task.arguments = [script.path] + arguments
-            if script.pathExtension == "py" {
+            if script.pathExtension == "py" || progressFile != nil {
                 var environment = ProcessInfo.processInfo.environment
-                environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
+                if script.pathExtension == "py" {
+                    environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
+                }
+                if let progressFile = progressFile { environment["TVT_PROGRESS_FILE"] = progressFile.path }
                 task.environment = environment
             }
             task.standardOutput = pipe
@@ -680,14 +683,50 @@ final class TVT: NSObject, NSApplicationDelegate {
         if let result = result { NSWorkspace.shared.activateFileViewerSelecting([result]) }
     }
 
+    func executeWithProgress(_ script: URL, _ arguments: [String], label: String,
+                             done: @escaping (Bool, String) -> Void) {
+        status.stringValue = label
+        let progress = FileManager.default.temporaryDirectory.appendingPathComponent("TVT-" + UUID().uuidString)
+        let duration = progress.appendingPathExtension("duration")
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let durationText = try? String(contentsOf: duration, encoding: .utf8),
+                  let seconds = Double(durationText.trimmingCharacters(in: .whitespacesAndNewlines)), seconds > 0,
+                  let handle = try? FileHandle(forReadingFrom: progress) else { return }
+            defer { try? handle.close() }
+            guard let size = try? handle.seekToEnd() else { return }
+            do { try handle.seek(toOffset: size > 4096 ? size - 4096 : 0) } catch { return }
+            guard let data = try? handle.read(upToCount: 4096) else { return }
+            let lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+            let time = lines.dropLast().last { $0.hasPrefix("out_time_us=") }
+            guard let time = time, let microseconds = Double(time.dropFirst("out_time_us=".count)),
+                  microseconds.isFinite else { return }
+            let percent = Int(min(99, max(0, 100 * microseconds / (seconds * 1_000_000))))
+            self?.status.stringValue = "\(percent)% · " + label
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        execute(script, arguments, progressFile: progress) { success, output in
+            timer.invalidate()
+            try? FileManager.default.removeItem(at: progress)
+            try? FileManager.default.removeItem(at: duration)
+            done(success, output)
+        }
+    }
+
     func export(_ arguments: [String]) {
         guard !processing, !queued else { return }
         let messages = ["split": "Splitting movie", "join": "Joining parts", "link": "Linking videos",
                         "upscale": "Upscaling video", "convert": "Converting video", "download": "Downloading media",
                         "audio": "Processing audio", "subtitles": "Preparing subtitles", "layout": "Changing video layout",
                         "trim": "Exporting selected clip"]
-        beginProcessing((messages[arguments[0]] ?? "Processing") + "… Please wait.")
-        execute(resources.appendingPathComponent("engine.sh"), arguments) { success, output in
+        let operation = arguments[0]
+        let activity = messages[operation] ?? "Processing"
+        let progressModes = ["upscale", "convert", "audio", "layout", "trim"]
+        let label = progressModes.contains(operation)
+            ? activity + " · " + URL(fileURLWithPath: arguments[operation == "layout" ? 3 : 2]).lastPathComponent
+            : activity + "… Please wait."
+        beginProcessing(label)
+        let script = resources.appendingPathComponent("engine.sh")
+        let finished: (Bool, String) -> Void = { success, output in
             let finished = success && !output.isEmpty
             self.endProcessing(finished ? "Finished. Your result is ready." : "Processing failed.", success: finished)
             if finished {
@@ -697,6 +736,8 @@ final class TVT: NSObject, NSApplicationDelegate {
                 self.alert("Processing failed", output.isEmpty ? "No result was created." : String(output.suffix(4000)))
             }
         }
+        if progressModes.contains(operation) { executeWithProgress(script, arguments, label: label, done: finished) }
+        else { execute(script, arguments, done: finished) }
     }
 
     func batchSources() -> [URL]? {
@@ -744,8 +785,8 @@ final class TVT: NSObject, NSApplicationDelegate {
                 return
             }
             let video = videos[index]
-            self.status.stringValue = "\(index + 1) of \(videos.count) · \(video.lastPathComponent)"
-            self.execute(script, ["batch-item", operation, setting, video.path, folder.path]) { success, output in
+            let label = "Video \(index + 1) of \(videos.count) · \(video.lastPathComponent)"
+            self.executeWithProgress(script, ["batch-item", operation, setting, video.path, folder.path], label: label) { success, output in
                 if !success || output.isEmpty {
                     failures.append(video.lastPathComponent + ": " + String(output.suffix(350)))
                 }
