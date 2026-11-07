@@ -421,21 +421,12 @@ final class TVT: NSObject, NSApplicationDelegate {
             stack.topAnchor.constraint(equalTo: dropView.topAnchor, constant: 16)
         ])
 
-        let badge = NSView()
-        badge.wantsLayer = true
-        badge.layer?.backgroundColor = NSColor(srgbRed: 0.09, green: 0.19, blue: 0.34, alpha: 1).cgColor
-        badge.layer?.cornerRadius = 9
-        badge.widthAnchor.constraint(equalToConstant: 62).isActive = true
-        badge.heightAnchor.constraint(equalToConstant: 38).isActive = true
-        let monogram = NSTextField(labelWithString: "TVT")
-        monogram.font = .systemFont(ofSize: 20, weight: .heavy)
-        monogram.textColor = NSColor(srgbRed: 0.77, green: 0.94, blue: 1, alpha: 1)
-        monogram.translatesAutoresizingMaskIntoConstraints = false
-        badge.addSubview(monogram)
-        NSLayoutConstraint.activate([
-            monogram.centerXAnchor.constraint(equalTo: badge.centerXAnchor),
-            monogram.centerYAnchor.constraint(equalTo: badge.centerYAnchor)
-        ])
+        let badge = NSImageView()
+        badge.image = NSImage(contentsOf: resources.appendingPathComponent("TVT.png"))
+        badge.imageScaling = .scaleProportionallyUpOrDown
+        badge.setAccessibilityLabel("TVT")
+        badge.widthAnchor.constraint(equalToConstant: 46).isActive = true
+        badge.heightAnchor.constraint(equalToConstant: 46).isActive = true
 
         let title = NSTextField(labelWithString: "Ted's Video Tool for 2D, 3D and VR")
         title.font = .systemFont(ofSize: 22, weight: .semibold)

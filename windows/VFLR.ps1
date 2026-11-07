@@ -19,19 +19,18 @@ $form.Controls.Add($menu)
 $form.MainMenuStrip = $menu
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
-$badge = New-Object Windows.Forms.Label
-$badge.Text = 'TVT'
-$badge.Font = New-Object Drawing.Font('Segoe UI', 15, [Drawing.FontStyle]::Bold)
-$badge.TextAlign = 'MiddleCenter'
-$badge.BackColor = [Drawing.Color]::FromArgb(23,48,87)
-$badge.ForeColor = [Drawing.Color]::FromArgb(196,240,255)
-$badge.SetBounds(18, 32, 62, 38)
+$form.Icon = New-Object Drawing.Icon((Join-Path $PSScriptRoot 'VFLR.ico'))
+$badge = New-Object Windows.Forms.PictureBox
+$badge.Image = [Drawing.Image]::FromFile((Join-Path $root 'TVT.png'))
+$badge.SizeMode = 'Zoom'
+$badge.AccessibleName = 'TVT'
+$badge.SetBounds(18, 28, 46, 46)
 $form.Controls.Add($badge)
 $heading = New-Object Windows.Forms.Label
 $heading.Text = "Ted's Video Tool for 2D, 3D and VR"
 $heading.Font = New-Object Drawing.Font('Segoe UI', 16, [Drawing.FontStyle]::Bold)
 $heading.TextAlign = 'MiddleLeft'
-$heading.SetBounds(92, 32, 520, 38)
+$heading.SetBounds(76, 32, 536, 38)
 $form.Controls.Add($heading)
 $tooltip = New-Object Windows.Forms.ToolTip
 $sourcesLabel = New-Object Windows.Forms.Label
@@ -753,4 +752,8 @@ $form.Add_FormClosing({
     if ($installPoll.Enabled) { $eventArgs.Cancel = $true; return }
     if ($job) { $eventArgs.Cancel = $true; Notice 'TVT' 'Wait for the current operation to finish before closing.' }
 })
-[void]$form.ShowDialog()
+try { [void]$form.ShowDialog() }
+finally {
+    $badge.Image.Dispose()
+    $form.Icon.Dispose()
+}
