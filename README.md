@@ -14,6 +14,9 @@ The installer uses Apple Command Line Tools and installs
 `/Applications/VFLR.app`. VFLR uses Homebrew FFmpeg in `/opt/homebrew/bin`.
 Install Command Line Tools with `xcode-select --install` if prompted.
 Install the MediaInfo command-line tool with `brew install media-info` once.
+For Download Online, install `brew install yt-dlp deno`. The Mac's Apple
+Command Line Tools supply Python 3 for stereo subtitle authoring and
+OpenSubtitles lookup.
 
 For later versions, open **Help → Check for Updates**. VFLR also checks on
 launch and every 15 minutes. Download the update, then quit VFLR so it can
@@ -30,6 +33,9 @@ Open Windows PowerShell. Install the shared engine dependencies once:
 winget install --id Git.Git -e
 winget install --id Gyan.FFmpeg -e
 winget install --id MediaArea.MediaInfo -e
+winget install --id yt-dlp.yt-dlp -e
+winget install --id DenoLand.Deno -e
+winget install --id Python.Python.3.12 -e
 ```
 
 Then run the VFLR installer:
@@ -43,3 +49,7 @@ Open **VFLR** from the Start menu. Windows installs per user in
 `%LOCALAPPDATA%\Programs\VFLR`. Sign out of Windows and back in if the dependency
 commands have yet to appear on the app's PATH after setup.
 Use **Help → Check for Updates** and close VFLR when an update is queued.
+
+
+For automatic subtitle searches, follow the OpenSubtitles setup in the
+[User Guide](UserGuide.txt). The API key stays in your local VFLR setup folder.

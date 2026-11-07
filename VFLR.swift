@@ -45,7 +45,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = menu
         NSApp.helpMenu = help.submenu
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 395),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 510),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "VFLR — Video Fix Link Restore"
         window.isReleasedWhenClosed = false
@@ -59,10 +59,12 @@ final class VFLR: NSObject, NSApplicationDelegate {
         stack.addArrangedSubview(title)
         for (name, action) in [("Split Movie", #selector(split)), ("Join Parts", #selector(join)),
                                ("Link Videos", #selector(link)), ("Upscale Video", #selector(upscale)),
-                               ("MediaInfo", #selector(inspectMedia)), ("Convert Video", #selector(convertVideo))] {
+                               ("MediaInfo", #selector(inspectMedia)), ("Convert Video", #selector(convertVideo)),
+                               ("Download Online", #selector(downloadOnline)), ("Extract or Remove Audio", #selector(audioTools)),
+                               ("Add Subtitles", #selector(addSubtitles)), ("Change Aspect or Stereo Layout", #selector(changeLayout))] {
             let button = NSButton(title: name, target: self, action: action)
             button.bezelStyle = .rounded
-            button.widthAnchor.constraint(equalToConstant: 150).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 240).isActive = true
             operations.append(button)
             stack.addArrangedSubview(button)
         }
@@ -232,6 +234,108 @@ final class VFLR: NSObject, NSApplicationDelegate {
         let name = source.deletingPathExtension().lastPathComponent + (choice == 0 ? " 1080p.mp4" : " 4K.mp4")
         guard let output = save(name, near: source) else { return }
         export(["upscale", choice == 0 ? "1080" : "2160", source.path, output])
+    }
+
+    let stereoLayouts = [("Full Side-by-Side", "sbsl"), ("Half Side-by-Side", "sbs2l"),
+                         ("Full Over-Under", "abl"), ("Half Over-Under", "ab2l")]
+
+    func chooseOption(_ title: String, _ labels: [String], detail: String = "", selected: Int = 0) -> Int? {
+        let dialog = NSAlert()
+        dialog.messageText = title
+        dialog.informativeText = detail
+        let popup = ClipOrderMenu(frame: NSRect(x: 0, y: 0, width: 300, height: 30), pullsDown: false)
+        popup.addItems(withTitles: labels)
+        popup.selectItem(at: selected)
+        dialog.accessoryView = popup
+        dialog.addButton(withTitle: "Continue")
+        dialog.addButton(withTitle: "Cancel")
+        return dialog.runModal() == .alertFirstButtonReturn ? popup.indexOfSelectedItem : nil
+    }
+
+    func textInput(_ title: String, _ value: String = "") -> String? {
+        let dialog = NSAlert()
+        dialog.messageText = title
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 350, height: 24))
+        field.stringValue = value
+        dialog.accessoryView = field
+        dialog.window.initialFirstResponder = field
+        dialog.addButton(withTitle: "Continue")
+        dialog.addButton(withTitle: "Cancel")
+        guard dialog.runModal() == .alertFirstButtonReturn else { return nil }
+        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    @objc func downloadOnline() {
+        guard let url = textInput("Paste an online video page URL"),
+              let choice = chooseOption("Download Online", ["Video (MKV)", "Audio Only (MP3)"]) else { return }
+        let ext = choice == 0 ? "mkv" : "mp3"
+        let home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Online Video")
+        guard let output = save("Online Video." + ext, near: home, fileExtension: ext) else { return }
+        export(["download", choice == 0 ? "video" : "audio", url, output])
+    }
+
+    @objc func audioTools() {
+        let options = [("MP3 audio", "mp3"), ("M4A audio", "m4a"), ("FLAC audio", "flac"),
+                       ("WAV audio", "wav"), ("Remove audio (MKV)", "silent")]
+        guard let source = files("Choose the source video.", multiple: false)?.first,
+              let choice = chooseOption("Extract or Remove Audio", options.map { $0.0 },
+                                        detail: "Audio extraction uses the first audio track.") else { return }
+        let format = options[choice].1
+        let ext = format == "silent" ? "mkv" : format
+        let name = source.deletingPathExtension().lastPathComponent + (format == "silent" ? " Silent." : " Audio.") + ext
+        guard let output = save(name, near: source, fileExtension: ext) else { return }
+        export(["audio", format, source.path, output])
+    }
+
+    @objc func addSubtitles() {
+        let layouts = [("2D", "flat")] + stereoLayouts
+        guard let source = files("Choose the video that needs subtitles.", multiple: false)?.first,
+              let layout = chooseOption("Choose the video layout", layouts.map { $0.0 }),
+              let method = chooseOption("Choose a subtitle source", ["Local subtitle file", "Search OpenSubtitles"],
+                                        detail: "Online search requires OpenSubtitles credentials. See the User Guide.") else { return }
+        var depth = "0"
+        if layout > 0 {
+            let levels = [("At the screen", "0"), ("Slightly forward", "0.8"),
+                          ("More forward", "1.5"), ("Most forward", "2.5")]
+            guard let level = chooseOption("3D subtitle depth", levels.map { $0.0 }, selected: 1) else { return }
+            depth = levels[level].1
+        }
+        var input: [String]
+        if method == 0 {
+            guard let captions = files("Choose a text subtitle file, such as SRT, ASS, or WebVTT.", multiple: false)?.first else { return }
+            input = ["local", captions.path]
+        } else {
+            guard let title = textInput("Movie title and year, or show title and S01E01", source.deletingPathExtension().lastPathComponent),
+                  let language = textInput("Subtitle language code", "en") else { return }
+            input = ["online", title, language]
+        }
+        let name = source.deletingPathExtension().lastPathComponent + " Subtitled.mkv"
+        guard let output = save(name, near: source, fileExtension: "mkv") else { return }
+        export(["subtitles", source.path, output, layouts[layout].1, depth] + input)
+    }
+
+    @objc func changeLayout() {
+        guard let source = files("Choose a 2D or packed 3D video.", multiple: false)?.first,
+              let choice = chooseOption("Change Aspect or Stereo Layout", ["2D aspect ratio", "3D stereo layout"]) else { return }
+        var input = "flat"
+        var output: String
+        if choice == 0 {
+            let ratios = ["16:9", "4:3", "1:1", "9:16"]
+            guard let ratio = chooseOption("Choose an aspect ratio", ratios,
+                                           detail: "VFLR adds padding to fit the entire picture.") else { return }
+            output = ratios[ratio]
+        } else {
+            let names = stereoLayouts.map { $0.0 }
+            guard let from = chooseOption("Current stereo layout (left eye first)", names),
+                  let to = chooseOption("Output stereo layout", names) else { return }
+            input = stereoLayouts[from].1
+            output = stereoLayouts[to].1
+            if input == output { return }
+        }
+        let name = source.deletingPathExtension().lastPathComponent + " Reframed.mkv"
+        guard let path = save(name, near: source, fileExtension: "mkv") else { return }
+        export(["layout", input, output, source.path, path])
     }
 
     @objc func convertVideo() {

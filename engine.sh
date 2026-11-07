@@ -83,7 +83,138 @@ fit_filter() {
 video_encoding=(-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p)
 audio_encoding=(-c:a aac -b:a 256k)
 
-if [[ "$mode" == convert ]]; then
+tool_dir=$(cd "$(dirname "$0")" && pwd)
+native_file() {
+    if command -v cygpath >/dev/null; then cygpath -am "$1"; else printf '%s\n' "$1"; fi
+}
+run_subtitles() {
+    local python=${VFLR_PYTHON:-}
+    if [[ -z "$python" ]]; then
+        python=$(command -v python3 || command -v python) || {
+            echo 'Python 3 is required for online or stereo subtitles. See the User Guide.' >&2
+            exit 1
+        }
+    fi
+    "$python" "$(native_file "$tool_dir/subtitle_tools.py")" "$@"
+}
+if [[ "$mode" == download ]]; then
+    quality=$1
+    url=$2
+    destination=$3
+    if [[ "$url" != http://* && "$url" != https://* ]]; then
+        echo 'Enter an HTTP or HTTPS video page URL.' >&2
+        exit 1
+    fi
+    ytdlp=${VFLR_YTDLP:-/opt/homebrew/bin/yt-dlp}
+    if [[ ! -x "$ytdlp" ]]; then ytdlp=$(command -v yt-dlp) || { echo 'Install yt-dlp. See the User Guide.' >&2; exit 1; }; fi
+    # Finder-launched apps do not inherit the Homebrew PATH.
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    case "$quality" in
+        video) extension=mkv; options=(--merge-output-format mkv --remux-video mkv) ;;
+        audio) extension=mp3; options=(-x --audio-format mp3 --audio-quality 0) ;;
+        *) exit 1 ;;
+    esac
+    stage_output "$destination"
+    if ! "$ytdlp" --ignore-config --no-playlist --no-progress --no-overwrites \
+        --ffmpeg-location "$(native_file "$FFMPEG")" -o "$(native_file "$output_stage")/download.%(ext)s" \
+        "${options[@]}" -- "$url" >"$work_dir/download.log" 2>&1; then
+        tail -c 3500 "$work_dir/download.log" >&2
+        exit 1
+    fi
+    if [[ ! -s "$output_stage/download.$extension" ]]; then
+        echo 'The downloader did not produce a file in the requested format.' >&2
+        exit 1
+    fi
+    publish "$output_stage/download.$extension" "$destination"
+elif [[ "$mode" == audio ]]; then
+    format=$1
+    source_file=$2
+    destination=$3
+    stage_output "$destination"
+    case "$format" in
+        mp3) options=(-map 0:a:0 -vn -c:a libmp3lame -q:a 2) ;;
+        m4a) options=(-map 0:a:0 -vn -c:a aac -b:a 256k) ;;
+        flac) options=(-map 0:a:0 -vn -c:a flac) ;;
+        wav) options=(-map 0:a:0 -vn -c:a pcm_s24le) ;;
+        silent) options=(-map '0:v' -map '0:s?' -map '0:t?' -an -c copy) ;;
+        *) exit 1 ;;
+    esac
+    extension=$format
+    if [[ "$format" == silent ]]; then extension=mkv; fi
+    run_ffmpeg -n -i "$source_file" "${options[@]}" "$output_stage/result.$extension"
+    publish "$output_stage/result.$extension" "$destination"
+elif [[ "$mode" == subtitles ]]; then
+    source_file=$1
+    destination=$2
+    layout=$3
+    depth=$4
+    provider=$5
+    stage_output "$destination"
+    case "$provider" in
+        local) captions=$6 ;;
+        online)
+            captions="$work_dir/online.srt"
+            export VFLR_SUBTITLE_CONFIG=${VFLR_SUBTITLE_CONFIG:-'/Applications/VFLR Development/OpenSubtitles.json'}
+            run_subtitles online "$(native_file "$source_file")" "$(native_file "$captions")" "$6" "$7"
+            ;;
+        *) exit 1 ;;
+    esac
+    run_ffmpeg -n -i "$captions" -map 0:s:0 -c:s srt "$work_dir/captions.srt"
+    captions="$work_dir/captions.srt"
+    case "$layout" in
+        flat) ;;
+        sbsl|sbs2l|abl|ab2l)
+            dimensions=$("$FFPROBE" -v error -select_streams V:0 -show_entries stream=width,height -of csv=p=0 "$source_file")
+            IFS=, read -r width height <<< "$dimensions"
+            [[ "$depth" =~ ^[0-3]([.][0-9])?$ && "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]
+            run_subtitles ass "$(native_file "$captions")" "$(native_file "$work_dir/stereo.ass")" "$layout" "$width" "$height" "$depth"
+            captions="$work_dir/stereo.ass"
+            ;;
+        *) exit 1 ;;
+    esac
+    index=$("$FFPROBE" -v error -select_streams s -show_entries stream=index -of csv=p=0 "$source_file" | awk 'END { print NR }')
+    run_ffmpeg -n -i "$source_file" -i "$captions" -map 0 -map '-0:d?' -map 1:s:0 -c copy \
+        -metadata:s:s:"$index" title='VFLR Subtitles' -disposition:s:"$index" 0 "$output_stage/result.mkv"
+    publish "$output_stage/result.mkv" "$destination"
+elif [[ "$mode" == layout ]]; then
+    input=$1
+    output=$2
+    source_file=$3
+    destination=$4
+    stage_output "$destination"
+    flags=()
+    if [[ "$input" == flat ]]; then
+        case "$output" in
+            16:9) rw=16; rh=9 ;; 4:3) rw=4; rh=3 ;; 1:1) rw=1; rh=1 ;; 9:16) rw=9; rh=16 ;; *) exit 1 ;;
+        esac
+        units="ceil(max(iw/$rw,ih/$rh)/2)*2"
+        filter="scale=w='max(2,trunc(iw*sar/2)*2)':h='max(2,trunc(ih/2)*2)',setsar=1,pad=w='$units*$rw':h='$units*$rh':x=(ow-iw)/2:y=(oh-ih)/2"
+        video_filter=(-map 0:V:0 -vf "$filter")
+    else
+        case "$input" in
+            sbsl|sbs2l) crop='iw/2:ih'; right='iw/2:0' ;;
+            abl|ab2l) crop='iw:ih/2'; right='0:ih/2' ;;
+            *) exit 1 ;;
+        esac
+        x=1; y=1
+        if [[ "$input" == sbs2l ]]; then x=2; fi
+        if [[ "$input" == ab2l ]]; then y=2; fi
+        case "$output" in
+            sbsl|sbs2l) stack=hstack; stereo=left_right ;;
+            abl|ab2l) stack=vstack; stereo=top_bottom ;;
+            *) exit 1 ;;
+        esac
+        if [[ "$output" == sbs2l ]]; then x="$x/2"; fi
+        if [[ "$output" == ab2l ]]; then y="$y/2"; fi
+        size="scale=w='max(2,trunc(iw*$x/2)*2)':h='max(2,trunc(ih*$y/2)*2)',setsar=1"
+        filter="[0:V:0]split=2[l][r];[l]crop=$crop:0:0:exact=1,$size[left];[r]crop=$crop:$right:exact=1,$size[right];[left][right]$stack[packed]"
+        video_filter=(-filter_complex_threads 1 -filter_complex "$filter" -map '[packed]')
+        flags=(-metadata:s:v:0 "stereo_mode=$stereo")
+    fi
+    run_ffmpeg -n -i "$source_file" "${video_filter[@]}" -map '0:a?' \
+        "${video_encoding[@]}" -c:a copy ${flags[@]+"${flags[@]}"} "$output_stage/result.mkv"
+    publish "$output_stage/result.mkv" "$destination"
+elif [[ "$mode" == convert ]]; then
     format=$1
     source_file=$2
     destination=$3

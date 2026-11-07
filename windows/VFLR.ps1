@@ -8,7 +8,7 @@ $profiles = @(Get-Content (Join-Path $root ConversionProfiles.tsv) | ForEach-Obj
 $form = New-Object Windows.Forms.Form
 $form.Text = "VFLR $version - Video Fix Link Restore"
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object Drawing.Size(480, 345)
+$form.ClientSize = New-Object Drawing.Size(510, 511)
 $menu = New-Object Windows.Forms.MenuStrip
 $helpMenu = $menu.Items.Add('Help')
 $guide = $helpMenu.DropDownItems.Add('VFLR User Guide')
@@ -18,15 +18,15 @@ $update.Add_Click({ Check-Update $true })
 $form.Controls.Add($menu)
 $form.MainMenuStrip = $menu
 $status = New-Object Windows.Forms.Label
-$status.SetBounds(20, 304, 435, 35)
+$status.SetBounds(20, 469, 465, 35)
 $status.Text = 'Choose a video operation.'
 $form.Controls.Add($status)
 $buttons = @()
-$names = @('Split Movie','Join Parts','Link Videos','Upscale Video','MediaInfo','Convert Video')
+$names = @('Split Movie','Join Parts','Link Videos','Upscale Video','MediaInfo','Convert Video','Download Online','Extract or Remove Audio','Add Subtitles','Change Aspect or Stereo Layout')
 for ($i = 0; $i -lt $names.Count; $i++) {
     $button = New-Object Windows.Forms.Button
     $button.Text = $names[$i]
-    $button.SetBounds(20, (44 + $i * 41), 160, 34)
+    $button.SetBounds(20, (44 + $i * 41), 245, 34)
     $button.Add_Click({ param($sender, $eventArgs) Choose-Operation $sender.Text })
     $form.Controls.Add($button)
     $buttons += $button
@@ -83,6 +83,31 @@ function Pick-Index($title, [string[]]$items, [int]$default = 0) {
         return -1
     } finally { $dialog.Dispose() }
 }
+function Text-Input($title, $value = '') {
+    $dialog = New-Object Windows.Forms.Form
+    try {
+        $dialog.Text = $title
+        $dialog.StartPosition = 'CenterParent'
+        $dialog.ClientSize = New-Object Drawing.Size(500, 108)
+        $field = New-Object Windows.Forms.TextBox
+        $field.Text = $value
+        $field.SetBounds(10, 12, 475, 25)
+        $ok = New-Object Windows.Forms.Button
+        $ok.Text = 'Continue'
+        $ok.DialogResult = 'OK'
+        $ok.SetBounds(310, 60, 80, 27)
+        $cancel = New-Object Windows.Forms.Button
+        $cancel.Text = 'Cancel'
+        $cancel.DialogResult = 'Cancel'
+        $cancel.SetBounds(400, 60, 80, 27)
+        $dialog.Controls.AddRange(@($field,$ok,$cancel))
+        $dialog.AcceptButton = $ok
+        $dialog.CancelButton = $cancel
+        if ($dialog.ShowDialog($form) -eq 'OK') { $field.Text.Trim() }
+    } finally { $dialog.Dispose() }
+}
+$layoutLabels = @('Full Side-by-Side','Half Side-by-Side','Full Over-Under','Half Over-Under')
+$layoutCodes = @('sbsl','sbs2l','abl','ab2l')
 function Quote-Arg([string]$value) {
     # Windows CreateProcess quoting, including trailing backslashes.
     '"' + (($value -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
@@ -105,6 +130,13 @@ function Start-Engine([string[]]$arguments, [string]$reportName) {
     } else {
         [void](Find-Tool 'ffmpeg.exe')
         [void](Find-Tool 'ffprobe.exe')
+        if ($arguments[0] -eq 'download') {
+            $info.EnvironmentVariables['VFLR_YTDLP'] = (Find-Tool 'yt-dlp.exe').Replace('\','/')
+        }
+        if ($arguments[0] -eq 'subtitles' -and ($arguments[3] -ne 'flat' -or $arguments[5] -eq 'online')) {
+            $info.EnvironmentVariables['VFLR_PYTHON'] = (Find-Tool 'python.exe').Replace('\','/')
+            $info.EnvironmentVariables['VFLR_SUBTITLE_CONFIG'] = Join-Path (Split-Path $root) 'OpenSubtitles.json'
+        }
     }
     $scriptFile = (Join-Path $PSScriptRoot 'engine-windows.sh').Replace('\','/')
     $info.Arguments = (@('--noprofile','--norc',$scriptFile) + $arguments | ForEach-Object { Quote-Arg $_ }) -join ' '
@@ -169,6 +201,17 @@ $poll.Add_Tick({
 })
 function Choose-Operation($operation) {
     try {
+        if ($operation -eq 'Download Online') {
+            $url = Text-Input 'Paste an online video page URL'
+            if (-not $url) { return }
+            $choice = Pick-Index 'Download Online' @('Video (MKV)','Audio Only (MP3)')
+            if ($choice -lt 0) { return }
+            $extension = @('mkv','mp3')[$choice]
+            $save = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Online.mp4'
+            $destination = Pick-Output $save $extension 'Download'
+            if ($destination) { Start-Engine @('download',@('video','audio')[$choice],$url,$destination) }
+            return
+        }
         $multiple = $operation -in @('Join Parts','Link Videos')
         $files = @(Pick-Files $multiple)
         if (-not $files.Count) { return }
@@ -208,6 +251,61 @@ function Choose-Operation($operation) {
             'MediaInfo' {
                 $choice = Pick-Index 'MediaInfo report view' @('Summary','Full Details','JSON')
                 if ($choice -ge 0) { Start-Engine @('info',@('summary','full','json')[$choice],$file) ([IO.Path]::GetFileName($file)) }
+            }
+            'Extract or Remove Audio' {
+                $choice = Pick-Index 'Extract first audio track or remove all audio' @('MP3','M4A','FLAC','WAV','Remove audio (MKV)')
+                if ($choice -lt 0) { return }
+                $format = @('mp3','m4a','flac','wav','silent')[$choice]
+                $extension = @('mp3','m4a','flac','wav','mkv')[$choice]
+                $suffix = if ($format -eq 'silent') { 'Silent' } else { 'Audio' }
+                $destination = Pick-Output $file $extension $suffix
+                if ($destination) { Start-Engine @('audio',$format,$file,$destination) }
+            }
+            'Add Subtitles' {
+                $choice = Pick-Index 'Choose the video layout' (@('2D') + $layoutLabels)
+                if ($choice -lt 0) { return }
+                $layout = (@('flat') + $layoutCodes)[$choice]
+                $method = Pick-Index 'Choose the subtitle source' @('Local text subtitle','Search OpenSubtitles')
+                if ($method -lt 0) { return }
+                $depth = '0'
+                if ($choice -gt 0) {
+                    $level = Pick-Index '3D subtitle depth' @('At the screen','Slightly forward','More forward','Most forward') 1
+                    if ($level -lt 0) { return }
+                    $depth = @('0','0.8','1.5','2.5')[$level]
+                }
+                if ($method -eq 0) {
+                    $caption = @(Pick-Files $false)
+                    if (-not $caption.Count) { return }
+                    $inputArgs = @('local',$caption[0])
+                } else {
+                    $title = Text-Input 'Movie title and year, or show title and S01E01' ([IO.Path]::GetFileNameWithoutExtension($file))
+                    if (-not $title) { return }
+                    $language = Text-Input 'Subtitle language code' 'en'
+                    if (-not $language) { return }
+                    $inputArgs = @('online',$title,$language)
+                }
+                $destination = Pick-Output $file 'mkv' 'Subtitled'
+                if ($destination) { Start-Engine (@('subtitles',$file,$destination,$layout,$depth) + $inputArgs) }
+            }
+            'Change Aspect or Stereo Layout' {
+                $choice = Pick-Index 'Change Aspect or Stereo Layout' @('2D aspect ratio (pad to fit)','3D stereo layout')
+                if ($choice -lt 0) { return }
+                $from = 'flat'
+                if ($choice -eq 0) {
+                    $ratios = @('16:9','4:3','1:1','9:16')
+                    $toIndex = Pick-Index 'Choose an aspect ratio' $ratios
+                    if ($toIndex -lt 0) { return }
+                    $to = $ratios[$toIndex]
+                } else {
+                    $fromIndex = Pick-Index 'Current stereo layout (left eye first)' $layoutLabels
+                    if ($fromIndex -lt 0) { return }
+                    $toIndex = Pick-Index 'Output stereo layout' $layoutLabels
+                    if ($toIndex -lt 0 -or $toIndex -eq $fromIndex) { return }
+                    $from = $layoutCodes[$fromIndex]
+                    $to = $layoutCodes[$toIndex]
+                }
+                $destination = Pick-Output $file 'mkv' 'Reframed'
+                if ($destination) { Start-Engine @('layout',$from,$to,$file,$destination) }
             }
             'Convert Video' {
                 $choice = Pick-Index 'Convert Video - choose the output format' @($profiles | ForEach-Object { $_[1] })

@@ -1,4 +1,4 @@
-VFLR 0.4.0 — Video Fix Link Restore
+VFLR 0.5.0 — Video Fix Link Restore
 
 Install and update
 On Mac, the first installation builds VFLR.app in Applications. It requires Apple
@@ -71,3 +71,58 @@ Conversion re-encodes the primary video and each audio track. For subtitles,
 choose MKV. Attachments (including subtitle fonts) and additional video
 tracks are omitted. Use the existing Join Parts operation for matching
 numbered files that can be joined by stream copy.
+
+
+Download Online
+Paste one video page URL, then choose Video (MKV) or Audio Only (MP3).
+VFLR uses yt-dlp, the same download engine used by Stacher. Supported
+sites and formats depend on yt-dlp and the page. Private, protected, or
+sign-in-only videos may be unavailable. Download material you have
+permission to save. Install yt-dlp and Deno using the GitHub README.
+Choose the save location for every download.
+
+Extract or Remove Audio
+Choose MP3, M4A, FLAC, or WAV to export the first audio track as a
+separate file. Choose Remove audio to create a silent MKV. That option
+copies video and compatible subtitle streams without re-encoding them.
+
+Add Subtitles
+Choose a 2D video or the matching full/half Side-by-Side or Over-Under
+layout (left eye first). Choose a local SRT, ASS, or WebVTT text file,
+or Search OpenSubtitles. VFLR creates an MKV with an additional,
+selectable subtitle track. Video and audio are copied. The added track
+starts disabled unless the player's subtitle preferences select it.
+Text files are normalized to plain timed text, so original ASS styling
+is not carried forward.
+
+In 3D, each timed cue is drawn in both eye images. Slightly forward is
+the default, with more forward placement or screen depth also available.
+The setting is a fixed offset for the whole film. Play in a player or
+mode that renders positioned ASS over the packed image before splitting
+it for 3D display. A player that overrides ASS placement may display
+the two copies incorrectly. Check a short scene on your usual 3D setup.
+
+OpenSubtitles setup
+1. Make an account at opensubtitles.com and create a key in your
+   profile's API Consumers section (www.opensubtitles.com/consumers).
+2. Save a file named OpenSubtitles.json containing:
+   {"api_key":"YOUR_API_KEY"}
+   Mac location: /Applications/VFLR Development/OpenSubtitles.json
+   Windows location: %LOCALAPPDATA%\Programs\VFLR\OpenSubtitles.json
+   Keep the file local. If your account uses a REST API bearer token,
+   you can add a "token" field. The provider controls download quotas.
+3. Choose Search OpenSubtitles and enter the film title and year, or a
+   series title followed by S01E01, plus a language code such as en.
+   VFLR tries a file hash match first, then downloads the best available
+   title match and adds it to the MKV. Check timing when a title match
+   comes from a different release. Local subtitles work without a key.
+   Python 3 is required for online lookup and stereo subtitle authoring.
+
+Change Aspect or Stereo Layout
+For 2D footage, choose 16:9, 4:3, 1:1, or 9:16. VFLR adds black padding
+to fit the whole picture. For 3D footage, choose the current and desired
+layout. The converter supports Full SBS, Half SBS, Full Over-Under,
+and Half Over-Under in left-eye-first order. Choose Half SBS as the
+output to reduce Full SBS to half the packed width. Output is H.264
+MKV with audio copied. Add 3D subtitles after converting the layout so
+the subtitle positions match the new frame.
