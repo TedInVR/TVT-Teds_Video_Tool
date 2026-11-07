@@ -1,0 +1,6 @@
+mp4	MP4 (H.264 / AAC)	-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart
+mkv	MKV (H.264 / AAC)	-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -c:s copy
+mov	MOV (ProRes 422 / PCM)	-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -c:a pcm_s16le
+webm	WebM (VP9 / Opus)	-c:v libvpx-vp9 -crf 30 -b:v 0 -c:a libopus -b:a 128k
+avi	AVI (MPEG-4 / MP3)	-c:v mpeg4 -q:v 3 -c:a libmp3lame -b:a 192k
+ts	MPEG-TS (H.264 / AAC)	-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k

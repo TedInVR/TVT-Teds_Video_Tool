@@ -1,17 +1,31 @@
 #!/bin/bash
 set -euo pipefail
 export LC_ALL=C
-FFMPEG=/opt/homebrew/bin/ffmpeg
-FFPROBE=/opt/homebrew/bin/ffprobe
-# Environment override is for automated verification; the app needs no Python.
-FFMPEG=${MOVIEPARTS_FFMPEG:-$FFMPEG}
-FFPROBE=${MOVIEPARTS_FFPROBE:-$FFPROBE}
-if [[ ! -x "$FFMPEG" || ! -x "$FFPROBE" ]]; then
-    echo 'FFmpeg or ffprobe was not found in /opt/homebrew/bin. Install Homebrew FFmpeg first.' >&2
-    exit 1
-fi
 mode=$1
 shift
+if [[ "$mode" == info ]]; then
+    view=$1
+    source_file=$2
+    media_info=${VFLR_MEDIAINFO:-/opt/homebrew/bin/mediainfo}
+    if [[ ! -x "$media_info" ]]; then
+        media_info=$(command -v mediainfo) || {
+            echo 'MediaInfo CLI is required. On Mac, run brew install media-info.' >&2
+            exit 1
+        }
+    fi
+    case "$view" in
+        summary) exec "$media_info" "$source_file" ;;
+        full) exec "$media_info" --Full "$source_file" ;;
+        json) exec "$media_info" --Output=JSON "$source_file" ;;
+        *) exit 1 ;;
+    esac
+fi
+FFMPEG=${MOVIEPARTS_FFMPEG:-/opt/homebrew/bin/ffmpeg}
+FFPROBE=${MOVIEPARTS_FFPROBE:-/opt/homebrew/bin/ffprobe}
+if [[ ! -x "$FFMPEG" || ! -x "$FFPROBE" ]]; then
+    echo 'FFmpeg and ffprobe are required. See the VFLR User Guide for setup.' >&2
+    exit 1
+fi
 work_dir=''
 output_stage=''
 reserved_output=''
@@ -23,6 +37,14 @@ cleanup() {
 trap cleanup EXIT
 work_dir=$(mktemp -d)
 run_ffmpeg() {
+    if command -v cygpath >/dev/null; then
+        local converted=() arg
+        for arg in "$@"; do
+            if [[ "$arg" == /* ]]; then arg=$(cygpath -am "$arg"); fi
+            converted+=("$arg")
+        done
+        set -- "${converted[@]}"
+    fi
     if ! "$FFMPEG" -hide_banner -nostdin -loglevel warning "$@" 2>"$work_dir/error.log"; then
         echo 'FFmpeg could not finish. Originals were not changed. Details:' >&2
         tail -c 3000 "$work_dir/error.log" >&2
@@ -61,7 +83,24 @@ fit_filter() {
 video_encoding=(-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p)
 audio_encoding=(-c:a aac -b:a 256k)
 
-if [[ "$mode" == upscale ]]; then
+if [[ "$mode" == convert ]]; then
+    format=$1
+    source_file=$2
+    destination=$3
+    profiles="$(dirname "$0")/ConversionProfiles.tsv"
+    settings=$(awk -F '\t' -v fmt="$format" '$1 == fmt {print $3}' "$profiles")
+    if [[ -z "$settings" || "$destination" != *."$format" ]]; then
+        echo 'Select a supported output format and matching filename extension.' >&2
+        exit 1
+    fi
+    read -r -a encoding <<< "$settings"
+    tracks=(-map 0:V:0 -map '0:a?')
+    if [[ "$format" == mkv ]]; then tracks+=(-map '0:s?'); fi
+    stage_output "$destination"
+    run_ffmpeg -n -i "$source_file" "${tracks[@]}" -vf 'pad=ceil(iw/2)*2:ceil(ih/2)*2' \
+        "${encoding[@]}" "$output_stage/result.$format"
+    publish "$output_stage/result.$format" "$destination"
+elif [[ "$mode" == upscale ]]; then
     target=$1
     source_file=$2
     destination=$3
@@ -181,9 +220,15 @@ elif [[ "$mode" == join ]]; then
             exit 1
         fi
         index=$((index+1))
-        # Safe local names avoid escaping user filenames in the concat manifest.
-        ln -s "$source_file" "$work_dir/part${index}.mp4"
-        printf "file 'part%s.mp4'\n" "$index" >> "$work_dir/list.txt"
+        if command -v cygpath >/dev/null; then
+            concat_path=$(cygpath -am "$source_file")
+            escaped_path=$(printf '%s' "$concat_path" | sed "s/'/'\\\\''/g")
+            printf "file '%s'\n" "$escaped_path" >> "$work_dir/list.txt"
+        else
+            # Safe local names avoid escaping user filenames in the concat manifest.
+            ln -s "$source_file" "$work_dir/part${index}.mp4"
+            printf "file 'part%s.mp4'\n" "$index" >> "$work_dir/list.txt"
+        fi
     done
     output="$out_dir/Joined_3D_SBS_LR.mp4"
     run_ffmpeg -n -f concat -safe 0 -i "$work_dir/list.txt" -map 0 -map_metadata -1 -map_chapters -1 -c copy -movflags +faststart "$output"

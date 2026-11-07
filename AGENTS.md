@@ -8,3 +8,7 @@
 - Keep the installed app and development/update staging under /Applications.
   Keep the Help menu update command, 15-minute checks, installation after
   quit, and staging cleanup working.
+
+- Check macOS and Windows for every change. Keep shared FFmpeg modes and
+  output profiles consistent. Document platform-specific differences in
+  UserGuide.txt and tell the user about them when publishing.

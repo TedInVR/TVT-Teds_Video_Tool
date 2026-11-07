@@ -15,6 +15,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     var checking = false
     var queued = false
     var timer: Timer?
+    var reportWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if FileManager.default.fileExists(atPath: development.appendingPathComponent(".install-lock").path) {
@@ -44,7 +45,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = menu
         NSApp.helpMenu = help.submenu
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 395),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "VFLR — Video Fix Link Restore"
         window.isReleasedWhenClosed = false
@@ -57,7 +58,8 @@ final class VFLR: NSObject, NSApplicationDelegate {
         title.font = .boldSystemFont(ofSize: 22)
         stack.addArrangedSubview(title)
         for (name, action) in [("Split Movie", #selector(split)), ("Join Parts", #selector(join)),
-                               ("Link Videos", #selector(link)), ("Upscale Video", #selector(upscale))] {
+                               ("Link Videos", #selector(link)), ("Upscale Video", #selector(upscale)),
+                               ("MediaInfo", #selector(inspectMedia)), ("Convert Video", #selector(convertVideo))] {
             let button = NSButton(title: name, target: self, action: action)
             button.bezelStyle = .rounded
             button.widthAnchor.constraint(equalToConstant: 150).isActive = true
@@ -122,11 +124,11 @@ final class VFLR: NSObject, NSApplicationDelegate {
         return panel.runModal() == .OK ? panel.urls : nil
     }
 
-    func save(_ name: String, near source: URL) -> String? {
+    func save(_ name: String, near source: URL, fileExtension: String = "mp4") -> String? {
         let panel = NSSavePanel()
         panel.directoryURL = source.deletingLastPathComponent()
         panel.nameFieldStringValue = name
-        panel.allowedFileTypes = ["mp4"]
+        panel.allowedFileTypes = [fileExtension]
         return panel.runModal() == .OK ? panel.url?.path : nil
     }
 
@@ -230,6 +232,68 @@ final class VFLR: NSObject, NSApplicationDelegate {
         let name = source.deletingPathExtension().lastPathComponent + (choice == 0 ? " 1080p.mp4" : " 4K.mp4")
         guard let output = save(name, near: source) else { return }
         export(["upscale", choice == 0 ? "1080" : "2160", source.path, output])
+    }
+
+    @objc func convertVideo() {
+        guard let source = files("Choose any video supported by FFmpeg.", multiple: false)?.first else { return }
+        let url = resources.appendingPathComponent("ConversionProfiles.tsv")
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+            alert("Conversion profiles unavailable", "Reinstall VFLR to restore the profiles.")
+            return
+        }
+        let profiles = contents.split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }.filter { $0.count == 3 }
+        guard !profiles.isEmpty else { return }
+        let dialog = NSAlert()
+        dialog.messageText = "Convert Video"
+        dialog.informativeText = "Choose an output format. MKV keeps subtitle streams. The other presets export video and audio."
+        let popup = ClipOrderMenu(frame: NSRect(x: 0, y: 0, width: 280, height: 30), pullsDown: false)
+        popup.addItems(withTitles: profiles.map { $0[1] })
+        dialog.accessoryView = popup
+        dialog.addButton(withTitle: "Continue")
+        dialog.addButton(withTitle: "Cancel")
+        guard dialog.runModal() == .alertFirstButtonReturn else { return }
+        let format = profiles[popup.indexOfSelectedItem][0]
+        let name = source.deletingPathExtension().lastPathComponent + " Converted." + format
+        guard let output = save(name, near: source, fileExtension: format) else { return }
+        export(["convert", format, source.path, output])
+    }
+
+    @objc func inspectMedia() {
+        guard let source = files("Choose a file to inspect with MediaInfo.", multiple: false)?.first else { return }
+        let choice = alert("MediaInfo", "Choose a report view.", ["Summary", "Full Details", "JSON", "Cancel"])
+        let views = ["summary", "full", "json"]
+        guard views.indices.contains(choice) else { return }
+        execute(resources.appendingPathComponent("engine.sh"), ["info", views[choice], source.path]) { success, output in
+            guard success, !output.isEmpty else {
+                self.alert("MediaInfo report unavailable", output.isEmpty ? "MediaInfo did not recognize the selected file." : output)
+                return
+            }
+            self.showReport(output, name: source.lastPathComponent)
+        }
+    }
+
+    func showReport(_ report: String, name: String) {
+        reportWindow?.close()
+        let frame = NSRect(x: 0, y: 0, width: 800, height: 580)
+        let panel = NSWindow(contentRect: frame, styleMask: [.titled, .resizable, .closable, .miniaturizable], backing: .buffered, defer: false)
+        panel.title = "MediaInfo — " + name
+        panel.isReleasedWhenClosed = false
+        let scroll = NSScrollView(frame: frame)
+        scroll.hasVerticalScroller = true
+        let text = NSTextView(frame: frame)
+        text.isEditable = false
+        text.isSelectable = true
+        text.isVerticallyResizable = true
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        text.string = report
+        scroll.documentView = text
+        panel.contentView = scroll
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(text)
+        reportWindow = panel
     }
 
     @objc func showGuide() {
