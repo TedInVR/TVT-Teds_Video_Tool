@@ -42,15 +42,30 @@ if [[ "$mode" == setup ]]; then
     exit
 fi
 
-[[ "$mode" == preview ]]
+[[ "$mode" == preview || "$mode" == export ]]
 source_file=$1
 job=$2
 start=$3
 length=$4
 strength=$5
 shift 5
+if [[ "$mode" == export ]]; then
+    destination=$1
+    shift
+    if [[ -e "$destination" || -L "$destination" ]]; then
+        echo 'That output name is already in use. Choose a different name.' >&2
+        exit 1
+    fi
+    output_stage=$(mktemp -d "$(dirname "$destination")/.vflr-restore-XXXXXX")
+    reserved=''
+    trap 'rm -rf "$output_stage"; if [[ -n "$reserved" ]]; then rm -f "$reserved"; fi' EXIT
+    restored="$output_stage/restored.mp4"
+else
+    restored="$job/restored.mp4"
+fi
 [[ "$start" =~ ^[0-9]+([.][0-9]+)?$ && "$length" =~ ^[0-9]+([.][0-9]+)?$ ]]
-awk -v n="$length" 'BEGIN { exit !(n > 0 && n <= 5) }' || { echo 'Choose up to five seconds for the test.' >&2; exit 1; }
+awk -v n="$length" -v mode="$mode" 'BEGIN { exit !(n > 0 && (mode == "export" || n <= 5)) }' ||
+    { echo 'Choose a valid range. Comparison previews are limited to five seconds.' >&2; exit 1; }
 case "$strength" in gentle) opacity=0.28 ;; balanced) opacity=0.50 ;; strong) opacity=0.75 ;; *) exit 1 ;; esac
 mask="255*$opacity*clip((lum(X,Y)-24)/30,0,1)"
 for box in "$@"; do
@@ -93,11 +108,14 @@ else
     export PYTORCH_ENABLE_MPS_FALLBACK=1
     export PYTORCH_MPS_HIGH_WATERMARK_RATIO=1.0
     export PYTORCH_MPS_LOW_WATERMARK_RATIO=0.8
+    streaming=()
+    if [[ "$mode" == export ]]; then streaming=(--chunk_size 45); fi
     (
         cd "$backend"
         ./venv/bin/python inference_cli.py "$job/input.mp4" --output "$job/ai.mp4" --output_format mp4 \
             --video_backend ffmpeg --model_dir "$backend/models" --dit_model seedvr2_ema_3b_fp16.safetensors \
-            --resolution "$short" --max_resolution 960 --batch_size 5 --uniform_batch_size --temporal_overlap 2 --color_correction lab
+            --resolution "$short" --max_resolution 960 --batch_size 5 --uniform_batch_size --temporal_overlap 2 \
+            --color_correction lab ${streaming[@]+"${streaming[@]}"}
     ) >"$job/model.log" 2>&1 || { tail -c 4500 "$job/model.log" >&2; exit 1; }
 fi
 frames() {
@@ -113,8 +131,19 @@ actual=$(frames "$job/ai.mp4")
 # Apply the same source-luminance and rectangle mask to all three color planes.
 filter="[0:v]format=yuv444p,split[base][masksrc];[masksrc]geq=lum='$mask':cb='$mask':cr='$mask'[mask];[1:v]scale=$width:$height,setsar=1,format=yuv444p,setpts=N/($fps*TB)[ai];[base][ai][mask]maskedmerge[v]"
 run -n -i "$job/source.mp4" -i "$job/ai.mp4" -filter_complex_threads 1 -filter_complex "$filter" \
-    -map '[v]' -map '0:a?' -c:v libx264 -crf 16 -pix_fmt yuv420p -c:a copy "$job/restored.mp4"
-run -n -i "$job/source.mp4" -i "$job/restored.mp4" -filter_complex_threads 1 \
+    -map '[v]' -map '0:a?' -c:v libx264 -crf 16 -pix_fmt yuv420p -c:a copy -movflags +faststart "$restored"
+if [[ "$mode" == export ]]; then
+    if ! (set -o noclobber; : > "$destination") 2>/dev/null; then
+        echo 'The destination was taken while processing. Choose a different output name.' >&2
+        exit 1
+    fi
+    reserved=$destination
+    mv -f "$restored" "$destination"
+    reserved=''
+    printf '%s\n' "$destination"
+    exit 0
+fi
+run -n -i "$job/source.mp4" -i "$restored" -filter_complex_threads 1 \
     -filter_complex '[0:v]scale=420:-2[a];[1:v]scale=420:-2[b];[a][b]hstack=shortest=1[v]' \
     -map '[v]' -an -c:v libx264 -crf 20 -pix_fmt yuv420p -movflags +faststart "$job/comparison.mp4"
 printf '%s\n' "$job/comparison.mp4"

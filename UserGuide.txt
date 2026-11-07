@@ -1,4 +1,4 @@
-VFLR 0.8.0 — Video Fix Link Restore
+VFLR 0.8.1 — Video Fix Link Restore
 
 Install and update
 On Mac, the first installation builds VFLR.app in Applications. It requires Apple
@@ -163,36 +163,34 @@ MKV with audio copied. Add 3D subtitles after converting the layout so
 the subtitle positions match the new frame.
 
 
-AI Restore (Apple Silicon Mac preview)
+AI Restore (Apple Silicon Mac)
 Drop an SDR video into VFLR and choose AI Restore in Picture and Format.
-Choose Install AI Engine on the first run. This uses Homebrew Python
-3.12. If needed, run brew install python@3.12 in Terminal and retry.
-Installation places SeedVR2 under /Applications/VFLR Development.
-The first preview downloads several gigabytes of model weights.
-The video is processed locally. The AI engine and weights are kept
-separately from the app and survive normal VFLR updates.
+Choose Install AI Engine on the first run. If needed, run
+brew install python@3.12 in Terminal and retry. SeedVR2 and its weights
+are stored in /Applications/VFLR Development. The first restoration
+downloads several gigabytes of weights. There is no charge, trial,
+subscription, or account. Your video is processed locally.
 
-The first five seconds are selected by default. Scrub and choose
-Mark Start to move the sample to a different part of the video.
-Mark End can shorten the selected section. On the image, drag boxes
-around faces, lettering, or blurred people you want to preserve.
-Boxes stay in the same position for the full sample. Scrub through
-the selection and use a wide enough box to cover moving subjects.
-Clear Boxes removes all boxes.
+The entire video is selected by default. Use Mark Start and Mark End
+if you want to restore only a section. On the image, drag boxes around
+faces, lettering, or blurred people you want to preserve. Boxes stay
+in the same position for the selected range. Scrub through that range
+to check where people move. Clear Boxes removes all boxes.
 
-Click Run AI Preview and choose Gentle, Balanced, or Strong. The
-engine works across neighboring frames. VFLR blends the result into
-the source, protects deep shadows, and uses the source in the boxed
-areas. Feathering softens the transition just outside each box.
-Gentle applies the least AI detail. Review the moving comparison
-with Original on the left and Restored on the right. Save Restored
-Clip keeps the processed sample as an MP4 with the first source audio
-track. The comparison itself is muted. Preview working files are
-removed when you close the comparison or a job fails.
+Preview 5 Seconds is optional and shows the start of the selection.
+Compare the original on the left and the restoration on the right.
+Close the comparison to return to the same selection and boxes.
+Save Restored Clip saves the short sample if you want a copy.
 
-This release processes up to five seconds at a time. It is an SDR
-test workflow with a reduced-resolution AI pass, regular output
-encoding, and no guarantee of faithful AI details outside protected
-areas. The preview is available only on Apple Silicon. Windows
-retains the existing tools. The MambaOFR scratch-repair research
-implementation requires CUDA and is not included.
+Choose Restore Selection to restore the entire marked range or, with
+the default selection, the whole video. Choose Gentle, Balanced, or
+Strong and save an MP4. VFLR blends the model result into the source,
+preserves deep shadows and boxed areas, and keeps the first audio track.
+Gentle applies the least AI detail. Long jobs run in batches and can
+take substantial time and temporary disk space. There is no fixed
+duration limit for Restore Selection.
+
+This workflow is for SDR on Apple Silicon. It uses a reduced-resolution
+AI pass and regular output encoding. Review AI details outside protected
+areas. The MambaOFR scratch-repair research implementation requires CUDA
+and is not included.

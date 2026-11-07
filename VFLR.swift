@@ -86,11 +86,13 @@ final class RestoreComparison: NSObject {
     let job: URL
     let source: URL
     weak var app: VFLR?
+    let editor: TrimEditor?
 
-    init(app: VFLR, job: URL, source: URL) {
+    init(app: VFLR, job: URL, source: URL, editor: TrimEditor?) {
         self.app = app
         self.job = job
         self.source = source
+        self.editor = editor
         super.init()
         window.title = "AI Restore — Compare Preview"
         let content = NSView()
@@ -139,6 +141,9 @@ final class RestoreComparison: NSObject {
         try? FileManager.default.removeItem(at: job)
         app?.window.endSheet(window)
         app?.restoreComparison = nil
+        if let app = app, let editor = editor {
+            app.window.beginSheet(editor.window)
+        }
     }
 }
 
@@ -165,6 +170,7 @@ final class TrimEditor: NSObject {
     let times = NSTextField(labelWithString: "")
     let previewState = NSTextField(labelWithString: "Loading preview…")
     let range = TrimRange()
+    let comparisonButton = NSButton(title: "Preview 5 Seconds…", target: nil, action: nil)
     let saveButton = NSButton(title: "Export Clip…", target: nil, action: nil)
     let source: URL
     let duration: Double
@@ -182,7 +188,7 @@ final class TrimEditor: NSObject {
         self.source = source
         self.duration = duration
         self.restoring = restoring
-        self.end = restoring ? min(5, duration) : duration
+        self.end = duration
         directory = app.development.appendingPathComponent("Trim-" + UUID().uuidString, isDirectory: true)
         super.init()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -190,7 +196,7 @@ final class TrimEditor: NSObject {
         if restoring {
             window.setContentSize(NSSize(width: 810, height: 620))
             image.enabled = true
-            saveButton.title = "Run AI Preview…"
+            saveButton.title = "Restore Selection…"
         }
         let content = NSView()
         window.contentView = content
@@ -233,10 +239,13 @@ final class TrimEditor: NSObject {
         ])
         if restoring {
             controls.insertArrangedSubview(NSButton(title: "Clear Boxes", target: self, action: #selector(clearBoxes)), at: 4)
+            comparisonButton.target = self
+            comparisonButton.action = #selector(compareSelection)
+            controls.insertArrangedSubview(comparisonButton, at: 5)
         }
         stack.addArrangedSubview(controls)
         if restoring {
-            stack.addArrangedSubview(NSTextField(labelWithString: "Choose up to 5 seconds. Drag boxes around faces, lettering, or other areas to keep."))
+            stack.addArrangedSubview(NSTextField(labelWithString: "Restore the whole video or mark a shorter range. Draw boxes around areas to protect."))
         }
         updateTimes()
     }
@@ -251,7 +260,8 @@ final class TrimEditor: NSObject {
         range.start = start / duration
         range.end = end / duration
         range.needsDisplay = true
-        saveButton.isEnabled = end > start && (!restoring || end - start <= 5.0000001)
+        saveButton.isEnabled = end > start
+        comparisonButton.isEnabled = end > start
     }
 
     @objc func scrub() {
@@ -288,7 +298,6 @@ final class TrimEditor: NSObject {
     @objc func clearBoxes() { image.boxes = []; image.needsDisplay = true }
     @objc func markStart() {
         start = timeline.doubleValue
-        if restoring { end = min(duration, start + 5) }
         updateTimes()
     }
     @objc func markEnd() { end = timeline.doubleValue; updateTimes() }
@@ -297,12 +306,7 @@ final class TrimEditor: NSObject {
     @objc func saveSelection() {
         guard let app = app, end > start else { return }
         if restoring {
-            guard let level = app.chooseOption("AI cleanup strength", ["Gentle", "Balanced", "Strong"],
-                                               detail: "Deep shadows and boxed areas keep source detail. Use wider boxes around moving subjects.") else { return }
-            let masks = image.boxes.map { [$0.minX, $0.minY, $0.maxX, $0.maxY].map { app.mediaTime(Double($0)) }.joined(separator: ",") }
-            finish()
-            app.runRestore(source, start: start, length: min(5, end - start),
-                           strength: ["gentle", "balanced", "strong"][level], boxes: masks)
+            restoreSelection(preview: false)
             return
         }
         let profiles = app.conversionProfiles()
@@ -314,6 +318,27 @@ final class TrimEditor: NSObject {
         guard let destination = app.save(name, near: source, fileExtension: format) else { return }
         finish()
         app.export(["trim", format, source.path, destination, app.mediaTime(start), app.mediaTime(end)])
+    }
+
+    @objc func compareSelection() {
+        restoreSelection(preview: true)
+    }
+
+    func restoreSelection(preview: Bool) {
+        guard let app = app, end > start else { return }
+        guard let level = app.chooseOption("AI cleanup strength", ["Gentle", "Balanced", "Strong"],
+                                           detail: "Deep shadows and boxed areas keep source detail. Boxes stay fixed across the selected range.") else { return }
+        var destination: String?
+        if !preview {
+            let name = source.deletingPathExtension().lastPathComponent + " Restored.mp4"
+            guard let path = app.save(name, near: source) else { return }
+            destination = path
+        }
+        let masks = image.boxes.map { [$0.minX, $0.minY, $0.maxX, $0.maxY].map { app.mediaTime(Double($0)) }.joined(separator: ",") }
+        if !preview { finish() }
+        app.runRestore(source, start: start, length: preview ? min(5, end - start) : end - start,
+                       strength: ["gentle", "balanced", "strong"][level], boxes: masks, destination: destination,
+                       editor: preview ? self : nil)
     }
 
     func finish() {
@@ -688,14 +713,14 @@ final class VFLR: NSObject, NSApplicationDelegate {
 
     @objc func restoreClip() {
         #if arch(arm64)
-        guard let source = sourceFiles("Choose a video for an AI restoration preview.", multiple: false)?.first else { return }
+        guard let source = sourceFiles("Choose a video to restore.", multiple: false)?.first else { return }
         let script = resources.appendingPathComponent("restore.sh")
         execute(script, [development.path, "ready"]) { ready, _ in
             guard !self.processing, !self.queued, self.trimEditor == nil, self.restoreComparison == nil else { return }
             if ready {
                 self.openEditor(source, restoring: true)
             } else if self.alert("Install AI Engine?",
-                                 "VFLR will install SeedVR2 3B under Applications. The first preview downloads several gigabytes of model files. Restoration runs on this Mac.",
+                                 "VFLR will install SeedVR2 3B under Applications. The first restoration downloads several gigabytes of model files. Restoration runs on this Mac.",
                                  ["Install AI Engine", "Cancel"]) == 0 {
                 self.beginProcessing("Installing AI engine… Please wait.")
                 self.execute(script, [self.development.path, "setup"]) { success, detail in
@@ -706,27 +731,40 @@ final class VFLR: NSObject, NSApplicationDelegate {
             }
         }
         #else
-        alert("Apple Silicon required", "This AI preview uses the GPU in Apple Silicon Macs.")
+        alert("Apple Silicon required", "AI Restore uses the GPU in Apple Silicon Macs.")
         #endif
     }
 
-    func runRestore(_ source: URL, start: Double, length: Double, strength: String, boxes: [String]) {
+    func runRestore(_ source: URL, start: Double, length: Double, strength: String, boxes: [String],
+                    destination: String?, editor: TrimEditor?) {
         let job = development.appendingPathComponent("Restoration-" + UUID().uuidString, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: job, withIntermediateDirectories: true)
         } catch { alert("Could not open restoration workspace", error.localizedDescription); return }
-        beginProcessing("Restoring preview with SeedVR2… Please wait.")
+        if let editor = editor { window.endSheet(editor.window) }
+        let preview = destination == nil
+        beginProcessing(preview ? "Restoring preview with SeedVR2… Please wait."
+                                 : "Restoring video with SeedVR2… Please wait.")
         let script = resources.appendingPathComponent("restore.sh")
-        let args = [development.path, "preview", source.path, job.path, mediaTime(start), mediaTime(length), strength]
+        var args = [development.path, preview ? "preview" : "export", source.path, job.path,
+                    mediaTime(start), mediaTime(length), strength]
+        if let destination = destination { args.append(destination) }
         execute(script, args + boxes) { success, detail in
-            self.endProcessing(success ? "Restored preview ready." : "Restoration failed.", success: success)
-            if success {
-                let comparison = RestoreComparison(app: self, job: job, source: source)
+            if success && preview {
+                self.endProcessing("Restored preview ready.", success: true)
+                let comparison = RestoreComparison(app: self, job: job, source: source, editor: editor)
                 self.restoreComparison = comparison
                 self.window.beginSheet(comparison.window)
             } else {
                 try? FileManager.default.removeItem(at: job)
-                self.alert("AI restoration failed", detail.isEmpty ? "The model did not create a preview." : detail)
+                self.endProcessing(success ? "Finished. Your restored video is ready." : "Restoration failed.", success: success)
+                if success, let destination = destination {
+                    self.result = URL(fileURLWithPath: destination)
+                    self.revealButton.isHidden = false
+                } else {
+                    self.alert("AI restoration failed", detail.isEmpty ? "The model did not create a result." : detail)
+                    if let editor = editor { self.window.beginSheet(editor.window) }
+                }
             }
         }
     }
