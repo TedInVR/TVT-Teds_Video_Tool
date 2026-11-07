@@ -8,7 +8,7 @@ $profiles = @(Get-Content (Join-Path $root ConversionProfiles.tsv) | ForEach-Obj
 $form = New-Object Windows.Forms.Form
 $form.Text = "VFLR $version - Video Fix Link Restore"
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object Drawing.Size(632, 423)
+$form.ClientSize = New-Object Drawing.Size(632, 460)
 $menu = New-Object Windows.Forms.MenuStrip
 $helpMenu = $menu.Items.Add('Help')
 $guide = $helpMenu.DropDownItems.Add('VFLR User Guide')
@@ -45,10 +45,10 @@ $script:sources = @()
 
 $buttons = @()
 $groups = @(
-    @{ Title = 'Edit and Assemble'; X = 18; Y = 79; Tools = @('Split Movie','Join Parts','Link Videos') },
+    @{ Title = 'Edit and Assemble'; X = 18; Y = 79; Tools = @('Trim Clip','Split Movie','Join Parts','Link Videos') },
     @{ Title = 'Picture and Format'; X = 322; Y = 79; Tools = @('Upscale Video','Convert Video','Change Aspect or Stereo Layout') },
-    @{ Title = 'Audio and Subtitles'; X = 18; Y = 226; Tools = @('Extract or Remove Audio','Add Subtitles') },
-    @{ Title = 'Inspect and Download'; X = 322; Y = 226; Tools = @('MediaInfo','Download Online') }
+    @{ Title = 'Audio and Subtitles'; X = 18; Y = 262; Tools = @('Extract or Remove Audio','Add Subtitles') },
+    @{ Title = 'Inspect and Download'; X = 322; Y = 262; Tools = @('MediaInfo','Download Online') }
 )
 foreach ($group in $groups) {
     $box = New-Object Windows.Forms.GroupBox
@@ -66,7 +66,7 @@ foreach ($group in $groups) {
 }
 
 $banner = New-Object Windows.Forms.Panel
-$banner.SetBounds(18, 353, 595, 47)
+$banner.SetBounds(18, 389, 595, 47)
 $banner.BackColor = [Drawing.Color]::FromArgb(235,235,235)
 $status = New-Object Windows.Forms.Label
 $status.SetBounds(11, 14, 450, 23)
@@ -141,7 +141,7 @@ function Pick-Sources([bool]$multiple) {
     if ($choice -ge 0) { $script:sources[$choice] }
 }
 
-function Pick-Output($file, $extension, $suffix) {
+function Pick-Output($file, $extension, $suffix, $owner = $form) {
     $dialog = New-Object Windows.Forms.SaveFileDialog
     try {
         $dialog.InitialDirectory = [IO.Path]::GetDirectoryName($file)
@@ -149,10 +149,10 @@ function Pick-Output($file, $extension, $suffix) {
         $dialog.Filter = "$extension files|*.$extension"
         $dialog.DefaultExt = $extension
         $dialog.OverwritePrompt = $false
-        if ($dialog.ShowDialog($form) -eq 'OK') { $dialog.FileName }
+        if ($dialog.ShowDialog($owner) -eq 'OK') { $dialog.FileName }
     } finally { $dialog.Dispose() }
 }
-function Pick-Index($title, [string[]]$items, [int]$default = 0) {
+function Pick-Index($title, [string[]]$items, [int]$default = 0, $owner = $form) {
     $dialog = New-Object Windows.Forms.Form
     try {
         $dialog.Text = $title
@@ -174,7 +174,7 @@ function Pick-Index($title, [string[]]$items, [int]$default = 0) {
         $dialog.Controls.AddRange(@($combo,$ok,$cancel))
         $dialog.AcceptButton = $ok
         $dialog.CancelButton = $cancel
-        if ($dialog.ShowDialog($form) -eq 'OK') { return $combo.SelectedIndex }
+        if ($dialog.ShowDialog($owner) -eq 'OK') { return $combo.SelectedIndex }
         return -1
     } finally { $dialog.Dispose() }
 }
@@ -212,7 +212,7 @@ function Find-Tool([string]$name) {
     if ($command) { return $command.Source }
     throw "$name is required. See Help > VFLR User Guide for installation."
 }
-function Start-Engine([string[]]$arguments, [string]$reportName) {
+function New-EngineProcess([string[]]$arguments) {
     $process = New-Object Diagnostics.Process
     $info = $process.StartInfo
     $info.FileName = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
@@ -242,12 +242,16 @@ function Start-Engine([string[]]$arguments, [string]$reportName) {
     $info.StandardOutputEncoding = [Text.Encoding]::UTF8
     $info.StandardErrorEncoding = [Text.Encoding]::UTF8
     [void]$process.Start()
-    $script:job = @{
+    @{
         Process = $process
         Output = $process.StandardOutput.ReadToEndAsync()
         Errors = $process.StandardError.ReadToEndAsync()
-        Report = $reportName
     }
+}
+function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSource) {
+    $script:job = New-EngineProcess $arguments
+    $script:job.Report = $reportName
+    $script:job.TrimSource = $trimSource
     foreach ($button in $buttons) { $button.Enabled = $false }
     $browse.Enabled = $false
     $clear.Enabled = $false
@@ -257,6 +261,7 @@ function Start-Engine([string[]]$arguments, [string]$reportName) {
         split='Splitting movie'; join='Joining parts'; link='Linking videos'; upscale='Upscaling video'
         convert='Converting video'; download='Downloading media'; audio='Processing audio'
         subtitles='Preparing subtitles'; layout='Changing video layout'; info='Reading media information'
+        duration='Opening trim editor'; trim='Exporting selected clip'
     }
     $status.Text = $messages[$arguments[0]] + '... Please wait.'
     $banner.BackColor = [Drawing.Color]::FromArgb(199,224,255)
@@ -295,6 +300,7 @@ $poll.Add_Tick({
     $result = $job.Output.Result.Trim()
     $errors = $job.Errors.Result.Trim()
     $report = $job.Report
+    $trimSource = $job.TrimSource
     $code = $job.Process.ExitCode
     $job.Process.Dispose()
     $script:job = $null
@@ -308,7 +314,19 @@ $poll.Add_Tick({
         Notice 'VFLR' $errors
     } else {
         $banner.BackColor = [Drawing.Color]::FromArgb(201,237,209)
-        if ($report) {
+        if ($trimSource) {
+            try {
+                $duration = [double]::Parse($result, [Globalization.CultureInfo]::InvariantCulture)
+                if ($duration -le 0 -or [double]::IsInfinity($duration) -or [double]::IsNaN($duration)) { throw 'No readable video duration.' }
+                $status.Text = 'Trim editor ready.'
+                $selection = @(Show-TrimEditor $trimSource $duration)
+                if ($selection.Count) { Start-Engine $selection }
+            } catch {
+                $banner.BackColor = [Drawing.Color]::FromArgb(255,211,209)
+                $status.Text = 'Trim editor could not open.'
+                Notice 'VFLR' $_.Exception.Message
+            }
+        } elseif ($report) {
             $status.Text = 'Finished. MediaInfo report is ready.'
             Show-Report $report $result
         } else {
@@ -318,6 +336,151 @@ $poll.Add_Tick({
         }
     }
 })
+function Format-MediaTime([double]$seconds) {
+    $seconds.ToString('0.000000', [Globalization.CultureInfo]::InvariantCulture)
+}
+function Format-Clock([double]$seconds) {
+    $time = [TimeSpan]::FromSeconds($seconds)
+    '{0:00}:{1:00}:{2:00}.{3:000}' -f [Math]::Floor($time.TotalHours), $time.Minutes, $time.Seconds, $time.Milliseconds
+}
+function Update-TrimRange {
+    $editor = $script:trim
+    $position = $editor.Slider.Value / 1000.0
+    $editor.Times.Text = "Position $(Format-Clock $position)    Start $(Format-Clock $editor.Start)    End $(Format-Clock $editor.End)"
+    $editor.Export.Enabled = $editor.End -gt $editor.Start
+    $editor.Highlight.Invalidate()
+}
+function Request-TrimPreview {
+    Update-TrimRange
+    $editor = $script:trim
+    $editor.Pending = [Math]::Min($editor.Slider.Value / 1000.0, [Math]::Max(0, $editor.Duration - 0.15))
+}
+function Poll-TrimPreview {
+    $editor = $script:trim
+    if ($editor.Job) {
+        $jobPreview = $editor.Job
+        if (-not $jobPreview.Process.HasExited -or -not $jobPreview.Output.IsCompleted -or -not $jobPreview.Errors.IsCompleted) { return }
+        try {
+            if ($jobPreview.Process.ExitCode -eq 0) {
+                $stream = [IO.MemoryStream]::new([IO.File]::ReadAllBytes($editor.Preview))
+                try {
+                    $frame = [Drawing.Image]::FromStream($stream)
+                    try { $bitmap = [Drawing.Bitmap]::new($frame) } finally { $frame.Dispose() }
+                } finally { $stream.Dispose() }
+                if ($editor.Image.Image) { $editor.Image.Image.Dispose() }
+                $editor.Image.Image = $bitmap
+                $editor.Hint.Text = 'Preview at ' + (Format-Clock $editor.ActiveTime)
+            } else { $editor.Hint.Text = 'No frame at this position. Scrub to a different time.' }
+        } catch { $editor.Hint.Text = 'Could not display this frame.' }
+        $jobPreview.Process.Dispose()
+        $editor.Job = $null
+    }
+    if ($editor.Closing) { $editor.Window.Close(); return }
+    if ($null -ne $editor.Pending) {
+        $editor.ActiveTime = $editor.Pending
+        $editor.Pending = $null
+        $editor.Hint.Text = 'Finding preview frame...'
+        try {
+            $editor.Job = New-EngineProcess @('preview',(Format-MediaTime $editor.ActiveTime),$editor.File,$editor.Preview)
+        } catch { $editor.Hint.Text = $_.Exception.Message }
+    }
+}
+function Show-TrimEditor([string]$file, [double]$duration) {
+    $folder = Join-Path (Split-Path $root) ('Trim-' + [guid]::NewGuid())
+    [void](New-Item -ItemType Directory -Path $folder)
+    $dialog = New-Object Windows.Forms.Form
+    $timerPreview = New-Object Windows.Forms.Timer
+    try {
+        $dialog.Text = 'Trim Clip - ' + [IO.Path]::GetFileName($file)
+        $dialog.StartPosition = 'CenterParent'
+        $dialog.ClientSize = New-Object Drawing.Size(810, 565)
+        $dialog.FormBorderStyle = 'FixedDialog'
+        $dialog.MaximizeBox = $false
+        $image = New-Object Windows.Forms.PictureBox
+        $image.SetBounds(15, 12, 780, 390)
+        $image.BackColor = [Drawing.Color]::Black
+        $image.SizeMode = 'Zoom'
+        $hint = New-Object Windows.Forms.Label
+        $hint.SetBounds(16, 407, 775, 20)
+        $hint.Text = 'Loading preview...'
+        $slider = New-Object Windows.Forms.TrackBar
+        $slider.SetBounds(15, 429, 780, 29)
+        $slider.AutoSize = $false
+        $slider.TickStyle = 'None'
+        $slider.Maximum = [int][Math]::Min([int]::MaxValue, [Math]::Floor($duration * 1000))
+        $slider.SmallChange = 100
+        $slider.LargeChange = 1000
+        $slider.Add_ValueChanged({ Request-TrimPreview })
+        $highlight = New-Object Windows.Forms.Panel
+        $highlight.SetBounds(25, 462, 760, 8)
+        $highlight.BackColor = [Drawing.Color]::Gainsboro
+        $highlight.Add_Paint({
+            param($sender,$eventArgs)
+            $editor = $script:trim
+            $left = [int]($sender.Width * $editor.Start / $editor.Duration)
+            $width = [int]($sender.Width * [Math]::Max(0, $editor.End - $editor.Start) / $editor.Duration)
+            $eventArgs.Graphics.FillRectangle([Drawing.Brushes]::DodgerBlue, $left, 0, $width, $sender.Height)
+        })
+        $times = New-Object Windows.Forms.Label
+        $times.SetBounds(16, 480, 779, 20)
+        $exportButton = New-Object Windows.Forms.Button
+        $exportButton.Text = 'Export Clip...'
+        $exportButton.SetBounds(555, 517, 120, 29)
+        $exportButton.Add_Click({
+            $editor = $script:trim
+            if ($editor.End -le $editor.Start) { return }
+            $choice = Pick-Index 'Export Clip - choose a format' @($profiles | ForEach-Object { $_[1] }) 1 $editor.Window
+            if ($choice -lt 0) { return }
+            $extension = $profiles[$choice][0]
+            $destination = Pick-Output $editor.File $extension 'Clip' $editor.Window
+            if (-not $destination) { return }
+            $editor.Result = @('trim',$extension,$editor.File,$destination,(Format-MediaTime $editor.Start),(Format-MediaTime $editor.End))
+            $editor.Window.Close()
+        })
+        $dialog.Controls.AddRange(@($image,$hint,$slider,$highlight,$times,$exportButton))
+        $controls = @(
+            @{Text='-0.1 s'; X=16; Action={ $script:trim.Slider.Value = [Math]::Max(0, $script:trim.Slider.Value - 100) }},
+            @{Text='+0.1 s'; X=108; Action={ $script:trim.Slider.Value = [Math]::Min($script:trim.Slider.Maximum, $script:trim.Slider.Value + 100) }},
+            @{Text='Mark Start'; X=213; Action={ $script:trim.Start = $script:trim.Slider.Value / 1000.0; Update-TrimRange }},
+            @{Text='Mark End'; X=315; Action={ $script:trim.End = $script:trim.Slider.Value / 1000.0; Update-TrimRange }},
+            @{Text='Cancel'; X=703; Action={ $script:trim.Window.Close() }}
+        )
+        foreach ($control in $controls) {
+            $button = New-Object Windows.Forms.Button
+            $button.Text = $control.Text
+            $button.SetBounds($control.X, 517, 85, 29)
+            $button.Add_Click($control.Action)
+            $dialog.Controls.Add($button)
+        }
+        $script:trim = @{
+            Window=$dialog; Image=$image; Hint=$hint; Slider=$slider; Times=$times; Export=$exportButton
+            Highlight=$highlight; Start=0.0; End=$duration; Duration=$duration; File=$file
+            Preview=(Join-Path $folder 'frame.png'); Pending=0.0; Job=$null; Closing=$false; Result=$null
+        }
+        $dialog.Add_FormClosing({
+            param($sender,$eventArgs)
+            if ($script:trim.Job) {
+                $eventArgs.Cancel = $true
+                $script:trim.Closing = $true
+                $script:trim.Hint.Text = 'Finishing the current preview...'
+            }
+        })
+        Update-TrimRange
+        $timerPreview.Interval = 100
+        $timerPreview.Add_Tick({ Poll-TrimPreview })
+        $timerPreview.Start()
+        [void]$dialog.ShowDialog($form)
+        $script:trim.Result
+    } finally {
+        $timerPreview.Stop()
+        $timerPreview.Dispose()
+        if ($image -and $image.Image) { $image.Image.Dispose() }
+        $dialog.Dispose()
+        Remove-Item -LiteralPath $folder -Recurse -Force
+        $script:trim = $null
+    }
+}
+
 function Choose-Operation($operation) {
     try {
         if ($operation -eq 'Download Online') {
@@ -337,6 +500,9 @@ function Choose-Operation($operation) {
         if ($multiple -and $files.Count -lt 2) { Notice $operation 'Choose at least two files.'; return }
         $file = $files[0]
         switch ($operation) {
+            'Trim Clip' {
+                Start-Engine @('duration',$file) -trimSource $file
+            }
             'Split Movie' {
                 $choice = Pick-Index 'Number of roughly equal parts' (2..12 | ForEach-Object { "$_" }) 2
                 if ($choice -ge 0) { Start-Engine @('split', "$($choice + 2)", $file) }
@@ -439,7 +605,7 @@ function Choose-Operation($operation) {
 $script:queued = $false
 function Check-Update([bool]$manual) {
     if ($script:queued) { if ($manual) { Notice 'VFLR' 'Close VFLR to install the update.' }; return }
-    if ($job) { if ($manual) { Notice 'VFLR' 'Wait until the current operation finishes.' }; return }
+    if ($job -or $script:trim) { if ($manual) { Notice 'VFLR' 'Wait until the current operation finishes.' }; return }
     try {
         $commit = (Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/main" -TimeoutSec 12).sha
         if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'GitHub did not return a valid version reference.' }

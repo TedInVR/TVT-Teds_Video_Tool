@@ -97,7 +97,29 @@ run_subtitles() {
     fi
     "$python" "$(native_file "$tool_dir/subtitle_tools.py")" "$@"
 }
-if [[ "$mode" == download ]]; then
+if [[ "$mode" == duration ]]; then
+    duration=$("$FFPROBE" -v error -select_streams V:0 -show_entries stream=duration:format=duration \
+        -of default=nw=1:nk=1 "$1" |
+        awk '$0 ~ /^[0-9]+([.][0-9]+)?$/ && $0 > 0 { if (!duration) duration=$0 }
+             END { if (duration) print duration; else exit 1 }') || {
+        echo 'This video has no readable duration.' >&2
+        exit 1
+    }
+    printf '%s\n' "$duration"
+elif [[ "$mode" == preview ]]; then
+    time=$1
+    source_file=$2
+    destination=$3
+    [[ "$time" =~ ^[0-9]+([.][0-9]+)?$ ]]
+    run_ffmpeg -y -ss "$time" -i "$source_file" -map 0:V:0 -frames:v 1 \
+        -vf "scale=w='max(2,trunc(min(850,480*dar)/2)*2)':h='max(2,trunc(min(480,850/dar)/2)*2)',setsar=1" \
+        -c:v png -threads 1 -update 1 "$destination"
+    if [[ ! -s "$destination" ]]; then
+        echo 'No preview frame was found at this time.' >&2
+        exit 1
+    fi
+    printf '%s\n' "$destination"
+elif [[ "$mode" == download ]]; then
     quality=$1
     url=$2
     destination=$3
@@ -214,10 +236,25 @@ elif [[ "$mode" == layout ]]; then
     run_ffmpeg -n -i "$source_file" "${video_filter[@]}" -map '0:a?' \
         "${video_encoding[@]}" -c:a copy ${flags[@]+"${flags[@]}"} "$output_stage/result.mkv"
     publish "$output_stage/result.mkv" "$destination"
-elif [[ "$mode" == convert ]]; then
+elif [[ "$mode" == convert || "$mode" == trim ]]; then
     format=$1
     source_file=$2
     destination=$3
+    seek=()
+    range=()
+    if [[ "$mode" == trim ]]; then
+        start=$4
+        end=$5
+        if ! [[ "$start" =~ ^[0-9]+([.][0-9]+)?$ && "$end" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            echo 'Enter a valid start and end time.' >&2
+            exit 1
+        fi
+        length=$(awk -v start="$start" -v end="$end" 'BEGIN {
+            if (end <= start) exit 1; printf "%.6f", end-start
+        }') || { echo 'The end must be after the start.' >&2; exit 1; }
+        seek=(-ss "$start")
+        range=(-t "$length" -map_chapters -1)
+    fi
     profiles="$(dirname "$0")/ConversionProfiles.tsv"
     settings=$(awk -F '\t' -v fmt="$format" '$1 == fmt {print $3}' "$profiles")
     if [[ -z "$settings" || "$destination" != *."$format" ]]; then
@@ -226,9 +263,10 @@ elif [[ "$mode" == convert ]]; then
     fi
     read -r -a encoding <<< "$settings"
     tracks=(-map 0:V:0 -map '0:a?')
-    if [[ "$format" == mkv ]]; then tracks+=(-map '0:s?'); fi
+    if [[ "$format" == mkv && "$mode" == convert ]]; then tracks+=(-map '0:s?'); fi
     stage_output "$destination"
-    run_ffmpeg -n -i "$source_file" "${tracks[@]}" -vf 'pad=ceil(iw/2)*2:ceil(ih/2)*2' \
+    run_ffmpeg -n ${seek[@]+"${seek[@]}"} -i "$source_file" "${tracks[@]}" \
+        ${range[@]+"${range[@]}"} -vf 'pad=ceil(iw/2)*2:ceil(ih/2)*2' \
         "${encoding[@]}" "$output_stage/result.$format"
     publish "$output_stage/result.$format" "$destination"
 elif [[ "$mode" == upscale ]]; then

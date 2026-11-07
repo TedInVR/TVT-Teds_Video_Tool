@@ -7,10 +7,13 @@ mode=$1
 shift
 winpath() { cygpath -am "$1"; }
 case "$mode" in
-    info|split|upscale|convert|audio)
+    info|split|upscale|convert|audio|preview)
         arguments=("$1")
         shift
         for path in "$@"; do arguments+=("$(winpath "$path")"); done
+        ;;
+    trim)
+        arguments=("$1" "$(winpath "$2")" "$(winpath "$3")" "$4" "$5")
         ;;
     download)
         arguments=("$1" "$2" "$(winpath "$3")")
@@ -33,5 +36,8 @@ fi
 export MOVIEPARTS_FFMPEG MOVIEPARTS_FFPROBE
 MOVIEPARTS_FFMPEG=$(command -v ffmpeg)
 MOVIEPARTS_FFPROBE=$(command -v ffprobe)
+if [[ "$mode" == duration ]]; then
+    exec /bin/bash "$engine" "$mode" "${arguments[@]}"
+fi
 result=$(/bin/bash "$engine" "$mode" "${arguments[@]}")
 cygpath -aw "$result"

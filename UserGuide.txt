@@ -1,4 +1,4 @@
-VFLR 0.6.0 — Video Fix Link Restore
+VFLR 0.7.0 — Video Fix Link Restore
 
 Install and update
 On Mac, the first installation builds VFLR.app in Applications. It requires Apple
@@ -36,6 +36,23 @@ Audio and Subtitles, and Inspect and Download. A pulsing blue banner
 names the active job. Green confirms completion and red marks a failure.
 After an export, click Show Result to reveal the file in Finder or
 File Explorer. The banner indicates activity without estimating progress.
+
+Trim Clip
+Load a video and choose Trim Clip in Edit and Assemble. Scrub the
+timeline to see a preview frame. Use -0.1 s and +0.1 s to fine-tune
+the position. At the beginning of the section, click Mark Start. At
+the end, click Mark End. The colored range bar shows the selection.
+Click Export Clip and choose MP4, MKV, MOV, WebM, AVI, or MPEG-TS.
+The original file stays in place.
+
+The trim editor accepts local videos with a readable duration that
+FFmpeg can decode. Previews show the packed picture, including both
+eyes of SBS or Over-Under footage or the source VR projection. Exports
+preserve that picture layout. MKV is the default. VFLR re-encodes the
+main video and audio tracks so the cut can begin between keyframes.
+Subtitle tracks and chapters are omitted. Player-specific VR or 3D
+metadata may need to be restored separately for automatic detection
+on a headset or player.
 
 Split Movie
 Pick a video and choose 2–12 roughly equal parts. VFLR splits at nearby

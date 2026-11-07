@@ -19,6 +19,161 @@ final class VideoDropView: NSView {
     }
 }
 
+final class TrimRange: NSView {
+    var start = 0.0
+    var end = 1.0
+
+    override func draw(_ dirtyRect: NSRect) {
+        let track = bounds.insetBy(dx: 7, dy: 3)
+        NSColor.quaternaryLabelColor.setFill()
+        NSBezierPath(roundedRect: track, xRadius: 3, yRadius: 3).fill()
+        let selection = NSRect(x: track.minX + track.width * start, y: track.minY,
+                               width: track.width * max(0, end - start), height: track.height)
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(roundedRect: selection, xRadius: 3, yRadius: 3).fill()
+    }
+}
+
+final class TrimEditor: NSObject {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 810, height: 590),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    let image = NSImageView()
+    let timeline = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
+    let times = NSTextField(labelWithString: "")
+    let previewState = NSTextField(labelWithString: "Loading preview…")
+    let range = TrimRange()
+    let saveButton = NSButton(title: "Export Clip…", target: nil, action: nil)
+    let source: URL
+    let duration: Double
+    let directory: URL
+    weak var app: VFLR?
+    var start = 0.0
+    var end: Double
+    var requestedTime: Double?
+    var previewInFlight = false
+    var closed = false
+
+    init(app: VFLR, source: URL, duration: Double) throws {
+        self.app = app
+        self.source = source
+        self.duration = duration
+        self.end = duration
+        directory = app.development.appendingPathComponent("Trim-" + UUID().uuidString, isDirectory: true)
+        super.init()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        window.title = "Trim Clip — " + source.lastPathComponent
+        let content = NSView()
+        window.contentView = content
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 14)
+        ])
+        image.wantsLayer = true
+        image.layer?.backgroundColor = NSColor.black.cgColor
+        image.imageScaling = .scaleProportionallyUpOrDown
+        image.widthAnchor.constraint(equalToConstant: 778).isActive = true
+        image.heightAnchor.constraint(equalToConstant: 405).isActive = true
+        stack.addArrangedSubview(image)
+        stack.addArrangedSubview(previewState)
+        timeline.maxValue = duration
+        timeline.isContinuous = true
+        timeline.target = self
+        timeline.action = #selector(scrub)
+        timeline.widthAnchor.constraint(equalToConstant: 778).isActive = true
+        stack.addArrangedSubview(timeline)
+        range.widthAnchor.constraint(equalToConstant: 778).isActive = true
+        range.heightAnchor.constraint(equalToConstant: 12).isActive = true
+        stack.addArrangedSubview(range)
+        stack.addArrangedSubview(times)
+        saveButton.target = self
+        saveButton.action = #selector(saveSelection)
+        let controls = NSStackView(views: [
+            NSButton(title: "−0.1 s", target: self, action: #selector(back)),
+            NSButton(title: "+0.1 s", target: self, action: #selector(forward)),
+            NSButton(title: "Mark Start", target: self, action: #selector(markStart)),
+            NSButton(title: "Mark End", target: self, action: #selector(markEnd)),
+            saveButton, NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        ])
+        stack.addArrangedSubview(controls)
+        updateTimes()
+    }
+
+    func timeText(_ seconds: Double) -> String {
+        let ms = Int((seconds * 1000).rounded())
+        return String(format: "%02d:%02d:%02d.%03d", ms / 3600000, ms / 60000 % 60, ms / 1000 % 60, ms % 1000)
+    }
+
+    func updateTimes() {
+        times.stringValue = "Position  \(timeText(timeline.doubleValue))     Start  \(timeText(start))     End  \(timeText(end))"
+        range.start = start / duration
+        range.end = end / duration
+        range.needsDisplay = true
+        saveButton.isEnabled = end > start
+    }
+
+    @objc func scrub() {
+        updateTimes()
+        requestedTime = min(timeline.doubleValue, max(0, duration - 0.15))
+        loadPreview()
+    }
+
+    func loadPreview() {
+        guard !closed, !previewInFlight, let time = requestedTime, let app = app else { return }
+        requestedTime = nil
+        previewInFlight = true
+        previewState.stringValue = "Finding preview frame…"
+        let path = directory.appendingPathComponent("frame.png")
+        let args = ["preview", app.mediaTime(time), source.path, path.path]
+        app.execute(app.resources.appendingPathComponent("engine.sh"), args) { success, _ in
+            self.previewInFlight = false
+            if self.closed {
+                try? FileManager.default.removeItem(at: self.directory)
+                return
+            }
+            if success, let data = try? Data(contentsOf: path), let frame = NSImage(data: data) {
+                self.image.image = frame
+                self.previewState.stringValue = "Preview at " + self.timeText(time)
+            } else {
+                self.previewState.stringValue = "No frame at this position. Scrub to a different time."
+            }
+            self.loadPreview()
+        }
+    }
+
+    @objc func back() { timeline.doubleValue = max(0, timeline.doubleValue - 0.1); scrub() }
+    @objc func forward() { timeline.doubleValue = min(duration, timeline.doubleValue + 0.1); scrub() }
+    @objc func markStart() { start = timeline.doubleValue; updateTimes() }
+    @objc func markEnd() { end = timeline.doubleValue; updateTimes() }
+    @objc func cancel() { finish() }
+
+    @objc func saveSelection() {
+        guard let app = app, end > start else { return }
+        let profiles = app.conversionProfiles()
+        guard !profiles.isEmpty,
+              let choice = app.chooseOption("Export Clip", profiles.map { $0[1] },
+                                            detail: "Exports the primary video and all audio tracks.", selected: 1) else { return }
+        let format = profiles[choice][0]
+        let name = source.deletingPathExtension().lastPathComponent + " Clip." + format
+        guard let destination = app.save(name, near: source, fileExtension: format) else { return }
+        finish()
+        app.export(["trim", format, source.path, destination, app.mediaTime(start), app.mediaTime(end)])
+    }
+
+    func finish() {
+        closed = true
+        if !previewInFlight { try? FileManager.default.removeItem(at: directory) }
+        app?.window.endSheet(window)
+        app?.trimEditor = nil
+    }
+}
+
 final class VFLR: NSObject, NSApplicationDelegate {
     let resources = Bundle.main.resourceURL!
     let development = URL(fileURLWithPath: "/Applications/VFLR Development", isDirectory: true)
@@ -39,6 +194,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     var queued = false
     var timer: Timer?
     var reportWindow: NSWindow?
+    var trimEditor: TrimEditor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if FileManager.default.fileExists(atPath: development.appendingPathComponent(".install-lock").path) {
@@ -102,7 +258,8 @@ final class VFLR: NSObject, NSApplicationDelegate {
         stack.addArrangedSubview(sourcesRow)
 
         let editing = toolGroup("Edit and Assemble", [
-            ("Split Movie", #selector(split)), ("Join Parts", #selector(join)), ("Link Videos", #selector(link))
+            ("Trim Clip", #selector(trimClip)), ("Split Movie", #selector(split)),
+            ("Join Parts", #selector(join)), ("Link Videos", #selector(link))
         ])
         let picture = toolGroup("Picture and Format", [
             ("Upscale Video", #selector(upscale)), ("Convert Video", #selector(convertVideo)),
@@ -189,7 +346,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @discardableResult func loadSources(_ urls: [URL]) -> Bool {
-        guard !processing, !queued else { return false }
+        guard !processing, !queued, trimEditor == nil else { return false }
         var seen: Set<URL> = []
         let valid = urls.map { $0.standardizedFileURL }.filter {
             guard $0.isFileURL, seen.insert($0).inserted else { return false }
@@ -229,6 +386,9 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if trimEditor != nil {
+            return .terminateCancel
+        }
         if processing {
             alert("Processing in progress", "Wait for the current operation to finish before quitting.")
             return .terminateCancel
@@ -330,7 +490,8 @@ final class VFLR: NSObject, NSApplicationDelegate {
         guard !processing, !queued else { return }
         let messages = ["split": "Splitting movie", "join": "Joining parts", "link": "Linking videos",
                         "upscale": "Upscaling video", "convert": "Converting video", "download": "Downloading media",
-                        "audio": "Processing audio", "subtitles": "Preparing subtitles", "layout": "Changing video layout"]
+                        "audio": "Processing audio", "subtitles": "Preparing subtitles", "layout": "Changing video layout",
+                        "trim": "Exporting selected clip"]
         beginProcessing((messages[arguments[0]] ?? "Processing") + "… Please wait.")
         execute(resources.appendingPathComponent("engine.sh"), arguments) { success, output in
             let finished = success && !output.isEmpty
@@ -340,6 +501,32 @@ final class VFLR: NSObject, NSApplicationDelegate {
                 self.revealButton.isHidden = false
             } else {
                 self.alert("Processing failed", output.isEmpty ? "No result was created." : String(output.suffix(4000)))
+            }
+        }
+    }
+
+    func mediaTime(_ value: Double) -> String {
+        String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), value)
+    }
+
+    @objc func trimClip() {
+        guard let source = sourceFiles("Choose the video to trim.", multiple: false)?.first else { return }
+        beginProcessing("Opening trim editor… Please wait.")
+        execute(resources.appendingPathComponent("engine.sh"), ["duration", source.path]) { success, output in
+            guard success, let duration = Double(output), duration.isFinite, duration > 0 else {
+                self.endProcessing("Could not open trim editor.", success: false)
+                self.alert("Cannot trim this video", output)
+                return
+            }
+            do {
+                let editor = try TrimEditor(app: self, source: source, duration: duration)
+                self.endProcessing("Trim editor ready.", success: true)
+                self.trimEditor = editor
+                self.window.beginSheet(editor.window)
+                editor.scrub()
+            } catch {
+                self.endProcessing("Could not open trim editor.", success: false)
+                self.alert("Cannot open trim editor", error.localizedDescription)
             }
         }
     }
@@ -514,14 +701,18 @@ final class VFLR: NSObject, NSApplicationDelegate {
         export(["layout", input, output, source.path, path])
     }
 
-    @objc func convertVideo() {
-        guard let source = sourceFiles("Choose any video supported by FFmpeg.", multiple: false)?.first else { return }
+    func conversionProfiles() -> [[String]] {
         let url = resources.appendingPathComponent("ConversionProfiles.tsv")
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
             alert("Conversion profiles unavailable", "Reinstall VFLR to restore the profiles.")
-            return
+            return []
         }
-        let profiles = contents.split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }.filter { $0.count == 3 }
+        return contents.split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }.filter { $0.count == 3 }
+    }
+
+    @objc func convertVideo() {
+        guard let source = sourceFiles("Choose any video supported by FFmpeg.", multiple: false)?.first else { return }
+        let profiles = conversionProfiles()
         guard !profiles.isEmpty else { return }
         let dialog = NSAlert()
         dialog.messageText = "Convert Video"
@@ -609,7 +800,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
             }
             let fields = output.split(separator: " ").map(String.init)
             guard fields.count == 2 else { return }
-            if !manual && self.processing { return }
+            if self.trimEditor != nil || (!manual && self.processing) { return }
             if self.alert("VFLR \(fields[0]) is available", "VFLR will download the update and install it after you quit.", ["Download Update", "Later"]) != 0 { return }
             self.checking = true
             self.execute(script, ["prepare", fields[0], fields[1], String(ProcessInfo.processInfo.processIdentifier)]) { prepared, detail in
