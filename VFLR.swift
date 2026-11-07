@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 
 final class ClipOrderMenu: NSPopUpButton {
     override func scrollWheel(with event: NSEvent) {}
@@ -16,6 +17,128 @@ final class VideoDropView: NSView {
         let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
                                                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         return receive?(urls) ?? false
+    }
+}
+
+final class ProtectionPreview: NSImageView {
+    var enabled = false
+    var boxes: [NSRect] = []
+    var origin: NSPoint?
+    var pending: NSRect?
+
+    var picture: NSRect {
+        guard let size = image?.size, size.width > 0, size.height > 0 else { return .zero }
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        let width = size.width * scale, height = size.height * scale
+        return NSRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+    }
+
+    func point(_ event: NSEvent) -> NSPoint {
+        let current = convert(event.locationInWindow, from: nil)
+        let area = picture
+        return NSPoint(x: min(1, max(0, (current.x - area.minX) / area.width)),
+                       y: min(1, max(0, (area.maxY - current.y) / area.height)))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard enabled, boxes.count < 8, picture.width > 0,
+              picture.contains(convert(event.locationInWindow, from: nil)) else { return }
+        origin = point(event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let origin = origin else { return }
+        let end = point(event)
+        pending = NSRect(x: min(origin.x, end.x), y: min(origin.y, end.y),
+                         width: abs(end.x - origin.x), height: abs(end.y - origin.y))
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if let pending = pending, pending.width >= 0.01, pending.height >= 0.01 { boxes.append(pending) }
+        pending = nil
+        origin = nil
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard enabled else { return }
+        let area = picture
+        let rectangles = boxes + (pending.map { [$0] } ?? [])
+        for box in rectangles {
+            let rect = NSRect(x: area.minX + box.minX * area.width, y: area.maxY - box.maxY * area.height,
+                              width: box.width * area.width, height: box.height * area.height)
+            NSColor.systemYellow.withAlphaComponent(0.14).setFill()
+            NSBezierPath(rect: rect).fill()
+            NSColor.systemYellow.setStroke()
+            let outline = NSBezierPath(rect: rect)
+            outline.lineWidth = 2
+            outline.stroke()
+        }
+    }
+}
+
+final class RestoreComparison: NSObject {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 510),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    let playerView = AVPlayerView()
+    let job: URL
+    let source: URL
+    weak var app: VFLR?
+
+    init(app: VFLR, job: URL, source: URL) {
+        self.app = app
+        self.job = job
+        self.source = source
+        super.init()
+        window.title = "AI Restore — Compare Preview"
+        let content = NSView()
+        window.contentView = content
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 14)
+        ])
+        let caption = NSTextField(labelWithString: "ORIGINAL (LEFT)                                RESTORED (RIGHT)")
+        caption.font = .boldSystemFont(ofSize: 13)
+        stack.addArrangedSubview(caption)
+        playerView.player = AVPlayer(url: job.appendingPathComponent("comparison.mp4"))
+        playerView.controlsStyle = .inline
+        playerView.widthAnchor.constraint(equalToConstant: 828).isActive = true
+        playerView.heightAnchor.constraint(equalToConstant: 405).isActive = true
+        stack.addArrangedSubview(playerView)
+        stack.addArrangedSubview(NSStackView(views: [
+            NSButton(title: "Save Restored Clip…", target: self, action: #selector(save)),
+            NSButton(title: "Close", target: self, action: #selector(close))
+        ]))
+    }
+
+    @objc func save() {
+        guard let app = app else { return }
+        let name = source.deletingPathExtension().lastPathComponent + " Restored Sample.mp4"
+        guard let path = app.save(name, near: source) else { return }
+        do {
+            let destination = URL(fileURLWithPath: path)
+            try FileManager.default.copyItem(at: job.appendingPathComponent("restored.mp4"), to: destination)
+            app.result = destination
+            app.revealButton.isHidden = false
+            app.endProcessing("Finished. Your restored sample is ready.", success: true)
+            close()
+        } catch { app.alert("Could not save restored sample", error.localizedDescription) }
+    }
+
+    @objc func close() {
+        playerView.player?.pause()
+        playerView.player = nil
+        try? FileManager.default.removeItem(at: job)
+        app?.window.endSheet(window)
+        app?.restoreComparison = nil
     }
 }
 
@@ -37,7 +160,7 @@ final class TrimRange: NSView {
 final class TrimEditor: NSObject {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 810, height: 590),
                           styleMask: [.titled], backing: .buffered, defer: false)
-    let image = NSImageView()
+    let image = ProtectionPreview()
     let timeline = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     let times = NSTextField(labelWithString: "")
     let previewState = NSTextField(labelWithString: "Loading preview…")
@@ -45,6 +168,7 @@ final class TrimEditor: NSObject {
     let saveButton = NSButton(title: "Export Clip…", target: nil, action: nil)
     let source: URL
     let duration: Double
+    let restoring: Bool
     let directory: URL
     weak var app: VFLR?
     var start = 0.0
@@ -53,15 +177,21 @@ final class TrimEditor: NSObject {
     var previewInFlight = false
     var closed = false
 
-    init(app: VFLR, source: URL, duration: Double) throws {
+    init(app: VFLR, source: URL, duration: Double, restoring: Bool = false) throws {
         self.app = app
         self.source = source
         self.duration = duration
-        self.end = duration
+        self.restoring = restoring
+        self.end = restoring ? min(5, duration) : duration
         directory = app.development.appendingPathComponent("Trim-" + UUID().uuidString, isDirectory: true)
         super.init()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        window.title = "Trim Clip — " + source.lastPathComponent
+        window.title = (restoring ? "AI Restore — " : "Trim Clip — ") + source.lastPathComponent
+        if restoring {
+            window.setContentSize(NSSize(width: 810, height: 620))
+            image.enabled = true
+            saveButton.title = "Run AI Preview…"
+        }
         let content = NSView()
         window.contentView = content
         let stack = NSStackView()
@@ -101,7 +231,13 @@ final class TrimEditor: NSObject {
             NSButton(title: "Mark End", target: self, action: #selector(markEnd)),
             saveButton, NSButton(title: "Cancel", target: self, action: #selector(cancel))
         ])
+        if restoring {
+            controls.insertArrangedSubview(NSButton(title: "Clear Boxes", target: self, action: #selector(clearBoxes)), at: 4)
+        }
         stack.addArrangedSubview(controls)
+        if restoring {
+            stack.addArrangedSubview(NSTextField(labelWithString: "Choose up to 5 seconds. Drag boxes around faces, lettering, or other areas to keep."))
+        }
         updateTimes()
     }
 
@@ -115,7 +251,7 @@ final class TrimEditor: NSObject {
         range.start = start / duration
         range.end = end / duration
         range.needsDisplay = true
-        saveButton.isEnabled = end > start
+        saveButton.isEnabled = end > start && (!restoring || end - start <= 5.0000001)
     }
 
     @objc func scrub() {
@@ -149,12 +285,26 @@ final class TrimEditor: NSObject {
 
     @objc func back() { timeline.doubleValue = max(0, timeline.doubleValue - 0.1); scrub() }
     @objc func forward() { timeline.doubleValue = min(duration, timeline.doubleValue + 0.1); scrub() }
-    @objc func markStart() { start = timeline.doubleValue; updateTimes() }
+    @objc func clearBoxes() { image.boxes = []; image.needsDisplay = true }
+    @objc func markStart() {
+        start = timeline.doubleValue
+        if restoring { end = min(duration, start + 5) }
+        updateTimes()
+    }
     @objc func markEnd() { end = timeline.doubleValue; updateTimes() }
     @objc func cancel() { finish() }
 
     @objc func saveSelection() {
         guard let app = app, end > start else { return }
+        if restoring {
+            guard let level = app.chooseOption("AI cleanup strength", ["Gentle", "Balanced", "Strong"],
+                                               detail: "Deep shadows and boxed areas keep source detail. Use wider boxes around moving subjects.") else { return }
+            let masks = image.boxes.map { [$0.minX, $0.minY, $0.maxX, $0.maxY].map { app.mediaTime(Double($0)) }.joined(separator: ",") }
+            finish()
+            app.runRestore(source, start: start, length: min(5, end - start),
+                           strength: ["gentle", "balanced", "strong"][level], boxes: masks)
+            return
+        }
         let profiles = app.conversionProfiles()
         guard !profiles.isEmpty,
               let choice = app.chooseOption("Export Clip", profiles.map { $0[1] },
@@ -195,6 +345,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     var timer: Timer?
     var reportWindow: NSWindow?
     var trimEditor: TrimEditor?
+    var restoreComparison: RestoreComparison?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if FileManager.default.fileExists(atPath: development.appendingPathComponent(".install-lock").path) {
@@ -263,7 +414,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
         ])
         let picture = toolGroup("Picture and Format", [
             ("Upscale Video", #selector(upscale)), ("Convert Video", #selector(convertVideo)),
-            ("Change Aspect or Stereo Layout", #selector(changeLayout))
+            ("Change Aspect or Stereo Layout", #selector(changeLayout)), ("AI Restore", #selector(restoreClip))
         ])
         let tracks = toolGroup("Audio and Subtitles", [
             ("Extract or Remove Audio", #selector(audioTools)), ("Add Subtitles", #selector(addSubtitles))
@@ -346,7 +497,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @discardableResult func loadSources(_ urls: [URL]) -> Bool {
-        guard !processing, !queued, trimEditor == nil else { return false }
+        guard !processing, !queued, trimEditor == nil, restoreComparison == nil else { return false }
         var seen: Set<URL> = []
         let valid = urls.map { $0.standardizedFileURL }.filter {
             guard $0.isFileURL, seen.insert($0).inserted else { return false }
@@ -386,7 +537,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if trimEditor != nil {
+        if trimEditor != nil || restoreComparison != nil {
             return .terminateCancel
         }
         if processing {
@@ -511,7 +662,11 @@ final class VFLR: NSObject, NSApplicationDelegate {
 
     @objc func trimClip() {
         guard let source = sourceFiles("Choose the video to trim.", multiple: false)?.first else { return }
-        beginProcessing("Opening trim editor… Please wait.")
+        openEditor(source, restoring: false)
+    }
+
+    func openEditor(_ source: URL, restoring: Bool) {
+        beginProcessing(restoring ? "Opening restoration editor… Please wait." : "Opening trim editor… Please wait.")
         execute(resources.appendingPathComponent("engine.sh"), ["duration", source.path]) { success, output in
             guard success, let duration = Double(output), duration.isFinite, duration > 0 else {
                 self.endProcessing("Could not open trim editor.", success: false)
@@ -519,14 +674,59 @@ final class VFLR: NSObject, NSApplicationDelegate {
                 return
             }
             do {
-                let editor = try TrimEditor(app: self, source: source, duration: duration)
-                self.endProcessing("Trim editor ready.", success: true)
+                let editor = try TrimEditor(app: self, source: source, duration: duration, restoring: restoring)
+                self.endProcessing(restoring ? "Restoration editor ready." : "Trim editor ready.", success: true)
                 self.trimEditor = editor
                 self.window.beginSheet(editor.window)
                 editor.scrub()
             } catch {
                 self.endProcessing("Could not open trim editor.", success: false)
                 self.alert("Cannot open trim editor", error.localizedDescription)
+            }
+        }
+    }
+
+    @objc func restoreClip() {
+        #if arch(arm64)
+        guard let source = sourceFiles("Choose a video for an AI restoration preview.", multiple: false)?.first else { return }
+        let script = resources.appendingPathComponent("restore.sh")
+        execute(script, [development.path, "ready"]) { ready, _ in
+            guard !self.processing, !self.queued, self.trimEditor == nil, self.restoreComparison == nil else { return }
+            if ready {
+                self.openEditor(source, restoring: true)
+            } else if self.alert("Install AI Engine?",
+                                 "VFLR will install SeedVR2 3B under Applications. The first preview downloads several gigabytes of model files. Restoration runs on this Mac.",
+                                 ["Install AI Engine", "Cancel"]) == 0 {
+                self.beginProcessing("Installing AI engine… Please wait.")
+                self.execute(script, [self.development.path, "setup"]) { success, detail in
+                    self.endProcessing(success ? "AI engine installed." : "AI engine setup failed.", success: success)
+                    if success { self.openEditor(source, restoring: true) }
+                    else { self.alert("Could not install AI engine", detail.isEmpty ? "See the VFLR User Guide for setup." : detail) }
+                }
+            }
+        }
+        #else
+        alert("Apple Silicon required", "This AI preview uses the GPU in Apple Silicon Macs.")
+        #endif
+    }
+
+    func runRestore(_ source: URL, start: Double, length: Double, strength: String, boxes: [String]) {
+        let job = development.appendingPathComponent("Restoration-" + UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: job, withIntermediateDirectories: true)
+        } catch { alert("Could not open restoration workspace", error.localizedDescription); return }
+        beginProcessing("Restoring preview with SeedVR2… Please wait.")
+        let script = resources.appendingPathComponent("restore.sh")
+        let args = [development.path, "preview", source.path, job.path, mediaTime(start), mediaTime(length), strength]
+        execute(script, args + boxes) { success, detail in
+            self.endProcessing(success ? "Restored preview ready." : "Restoration failed.", success: success)
+            if success {
+                let comparison = RestoreComparison(app: self, job: job, source: source)
+                self.restoreComparison = comparison
+                self.window.beginSheet(comparison.window)
+            } else {
+                try? FileManager.default.removeItem(at: job)
+                self.alert("AI restoration failed", detail.isEmpty ? "The model did not create a preview." : detail)
             }
         }
     }
@@ -800,7 +1000,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
             }
             let fields = output.split(separator: " ").map(String.init)
             guard fields.count == 2 else { return }
-            if self.trimEditor != nil || (!manual && self.processing) { return }
+            if self.trimEditor != nil || self.restoreComparison != nil || self.processing { return }
             if self.alert("VFLR \(fields[0]) is available", "VFLR will download the update and install it after you quit.", ["Download Update", "Later"]) != 0 { return }
             self.checking = true
             self.execute(script, ["prepare", fields[0], fields[1], String(ProcessInfo.processInfo.processIdentifier)]) { prepared, detail in

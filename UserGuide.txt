@@ -1,4 +1,4 @@
-VFLR 0.7.0 — Video Fix Link Restore
+VFLR 0.8.0 — Video Fix Link Restore
 
 Install and update
 On Mac, the first installation builds VFLR.app in Applications. It requires Apple
@@ -161,3 +161,38 @@ and Half Over-Under in left-eye-first order. Choose Half SBS as the
 output to reduce Full SBS to half the packed width. Output is H.264
 MKV with audio copied. Add 3D subtitles after converting the layout so
 the subtitle positions match the new frame.
+
+
+AI Restore (Apple Silicon Mac preview)
+Drop an SDR video into VFLR and choose AI Restore in Picture and Format.
+Choose Install AI Engine on the first run. This uses Homebrew Python
+3.12. If needed, run brew install python@3.12 in Terminal and retry.
+Installation places SeedVR2 under /Applications/VFLR Development.
+The first preview downloads several gigabytes of model weights.
+The video is processed locally. The AI engine and weights are kept
+separately from the app and survive normal VFLR updates.
+
+The first five seconds are selected by default. Scrub and choose
+Mark Start to move the sample to a different part of the video.
+Mark End can shorten the selected section. On the image, drag boxes
+around faces, lettering, or blurred people you want to preserve.
+Boxes stay in the same position for the full sample. Scrub through
+the selection and use a wide enough box to cover moving subjects.
+Clear Boxes removes all boxes.
+
+Click Run AI Preview and choose Gentle, Balanced, or Strong. The
+engine works across neighboring frames. VFLR blends the result into
+the source, protects deep shadows, and uses the source in the boxed
+areas. Feathering softens the transition just outside each box.
+Gentle applies the least AI detail. Review the moving comparison
+with Original on the left and Restored on the right. Save Restored
+Clip keeps the processed sample as an MP4 with the first source audio
+track. The comparison itself is muted. Preview working files are
+removed when you close the comparison or a job fails.
+
+This release processes up to five seconds at a time. It is an SDR
+test workflow with a reduced-resolution AI pass, regular output
+encoding, and no guarantee of faithful AI details outside protected
+areas. The preview is available only on Apple Silicon. Windows
+retains the existing tools. The MambaOFR scratch-repair research
+implementation requires CUDA and is not included.

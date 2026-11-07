@@ -54,3 +54,17 @@ Use **Help → Check for Updates** and close VFLR when an update is queued.
 
 For automatic subtitle searches, follow the OpenSubtitles setup in the
 [User Guide](UserGuide.txt). The API key stays in your local VFLR setup folder.
+
+
+## AI restoration preview
+
+On Apple Silicon, **Picture and Format → AI Restore** opens a five-second
+SeedVR2 3B preview with protected regions and side-by-side playback.
+Install Homebrew Python 3.12 with `brew install python@3.12` if needed,
+then use **Install AI Engine** in VFLR. The runtime and weights are
+stored under Applications. This feature is Mac-only in 0.8.0.
+
+The [SeedVR2 model](https://huggingface.co/ByteDance-Seed/SeedVR2-3B) and
+[standalone integration](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler)
+are Apache 2.0 projects. VFLR downloads the runtime and model separately
+on the user's Mac.
