@@ -4,12 +4,35 @@ final class ClipOrderMenu: NSPopUpButton {
     override func scrollWheel(with event: NSEvent) {}
 }
 
+final class VideoDropView: NSView {
+    var receive: (([URL]) -> Bool)?
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self],
+                                              options: [.urlReadingFileURLsOnly: true]) ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                        options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return receive?(urls) ?? false
+    }
+}
+
 final class VFLR: NSObject, NSApplicationDelegate {
     let resources = Bundle.main.resourceURL!
     let development = URL(fileURLWithPath: "/Applications/VFLR Development", isDirectory: true)
     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     var window: NSWindow!
     var status: NSTextField!
+    var banner: NSView!
+    var sourcesLabel: NSTextField!
+    var browseButton: NSButton!
+    var clearButton: NSButton!
+    var revealButton: NSButton!
+    var sources: [URL] = []
+    var result: URL?
+    var pulseTimer: Timer?
     var operations: [NSButton] = []
     var processing = false
     var checking = false
@@ -45,33 +68,80 @@ final class VFLR: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = menu
         NSApp.helpMenu = help.submenu
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 510),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 460),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "VFLR — Video Fix Link Restore"
         window.isReleasedWhenClosed = false
+        let dropView = VideoDropView()
+        dropView.registerForDraggedTypes([.fileURL])
+        dropView.receive = { [weak self] in self?.loadSources($0) ?? false }
+        window.contentView = dropView
+
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
-        stack.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        dropView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: dropView.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: dropView.trailingAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: dropView.topAnchor, constant: 16)
+        ])
+
         let title = NSTextField(labelWithString: "Video Fix Link Restore")
         title.font = .boldSystemFont(ofSize: 22)
         stack.addArrangedSubview(title)
-        for (name, action) in [("Split Movie", #selector(split)), ("Join Parts", #selector(join)),
-                               ("Link Videos", #selector(link)), ("Upscale Video", #selector(upscale)),
-                               ("MediaInfo", #selector(inspectMedia)), ("Convert Video", #selector(convertVideo)),
-                               ("Download Online", #selector(downloadOnline)), ("Extract or Remove Audio", #selector(audioTools)),
-                               ("Add Subtitles", #selector(addSubtitles)), ("Change Aspect or Stereo Layout", #selector(changeLayout))] {
-            let button = NSButton(title: name, target: self, action: action)
-            button.bezelStyle = .rounded
-            button.widthAnchor.constraint(equalToConstant: 240).isActive = true
-            operations.append(button)
-            stack.addArrangedSubview(button)
+        sourcesLabel = NSTextField(labelWithString: "Drop videos here, or browse for files.")
+        sourcesLabel.lineBreakMode = .byTruncatingMiddle
+        sourcesLabel.widthAnchor.constraint(equalToConstant: 395).isActive = true
+        browseButton = NSButton(title: "Browse…", target: self, action: #selector(browseSources))
+        clearButton = NSButton(title: "Clear", target: self, action: #selector(clearSources))
+        clearButton.isEnabled = false
+        let sourcesRow = NSStackView(views: [sourcesLabel, browseButton, clearButton])
+        stack.addArrangedSubview(sourcesRow)
+
+        let editing = toolGroup("Edit and Assemble", [
+            ("Split Movie", #selector(split)), ("Join Parts", #selector(join)), ("Link Videos", #selector(link))
+        ])
+        let picture = toolGroup("Picture and Format", [
+            ("Upscale Video", #selector(upscale)), ("Convert Video", #selector(convertVideo)),
+            ("Change Aspect or Stereo Layout", #selector(changeLayout))
+        ])
+        let tracks = toolGroup("Audio and Subtitles", [
+            ("Extract or Remove Audio", #selector(audioTools)), ("Add Subtitles", #selector(addSubtitles))
+        ])
+        let other = toolGroup("Inspect and Download", [
+            ("MediaInfo", #selector(inspectMedia)), ("Download Online", #selector(downloadOnline))
+        ])
+        for pair in [[editing, picture], [tracks, other]] {
+            let row = NSStackView(views: pair)
+            row.spacing = 12
+            row.alignment = .top
+            stack.addArrangedSubview(row)
         }
-        status = NSTextField(wrappingLabelWithString: "Choose a video operation.")
-        status.preferredMaxLayoutWidth = 420
-        stack.addArrangedSubview(status)
-        window.contentView = stack
+
+        banner = NSView()
+        banner.wantsLayer = true
+        banner.layer?.cornerRadius = 7
+        banner.widthAnchor.constraint(equalToConstant: 580).isActive = true
+        banner.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        status = NSTextField(labelWithString: "")
+        status.textColor = NSColor(calibratedWhite: 0.14, alpha: 1)
+        status.lineBreakMode = .byTruncatingMiddle
+        revealButton = NSButton(title: "Show Result", target: self, action: #selector(revealResult))
+        revealButton.isHidden = true
+        let bannerRow = NSStackView(views: [status, revealButton])
+        bannerRow.translatesAutoresizingMaskIntoConstraints = false
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        banner.addSubview(bannerRow)
+        NSLayoutConstraint.activate([
+            bannerRow.leadingAnchor.constraint(equalTo: banner.leadingAnchor, constant: 12),
+            bannerRow.trailingAnchor.constraint(equalTo: banner.trailingAnchor, constant: -12),
+            bannerRow.centerYAnchor.constraint(equalTo: banner.centerYAnchor)
+        ])
+        stack.addArrangedSubview(banner)
+        setBanner("Ready. Drop a video or choose a tool.", color: NSColor(calibratedWhite: 0.92, alpha: 1))
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -89,18 +159,78 @@ final class VFLR: NSObject, NSApplicationDelegate {
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         guard !processing, !queued, !filenames.isEmpty else { sender.reply(toOpenOrPrint: .failure); return }
         sender.reply(toOpenOrPrint: .success)
-        let files = filenames.map { URL(fileURLWithPath: $0) }
         DispatchQueue.main.async {
-            if files.count == 1 { self.splitFile(files[0]) }
-            else if let selected = self.files("Select every numbered movie part, including the first.", multiple: true, directory: files[0].deletingLastPathComponent()) {
-                self.joinFiles(selected)
+            if self.loadSources(filenames.map { URL(fileURLWithPath: $0) }) {
+                self.window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
             }
         }
     }
 
+    func toolGroup(_ title: String, _ tools: [(String, Selector)]) -> NSBox {
+        let box = NSBox()
+        box.title = title
+        box.contentViewMargins = NSSize(width: 8, height: 7)
+        let list = NSStackView()
+        list.orientation = .vertical
+        list.alignment = .leading
+        list.spacing = 4
+        box.contentView = list
+        box.widthAnchor.constraint(equalToConstant: 284).isActive = true
+        box.heightAnchor.constraint(equalToConstant: CGFloat(34 + tools.count * 27)).isActive = true
+        for (name, action) in tools {
+            let button = NSButton(title: name, target: self, action: action)
+            button.bezelStyle = .rounded
+            button.widthAnchor.constraint(equalToConstant: 250).isActive = true
+            list.addArrangedSubview(button)
+            operations.append(button)
+        }
+        return box
+    }
+
+    @discardableResult func loadSources(_ urls: [URL]) -> Bool {
+        guard !processing, !queued else { return false }
+        var seen: Set<URL> = []
+        let valid = urls.map { $0.standardizedFileURL }.filter {
+            guard $0.isFileURL, seen.insert($0).inserted else { return false }
+            return (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        }
+        guard !valid.isEmpty else { return false }
+        sources = valid
+        sourcesLabel.stringValue = valid.count == 1 ? valid[0].lastPathComponent : "\(valid.count) files loaded"
+        sourcesLabel.toolTip = valid.map { $0.path }.joined(separator: "\n")
+        clearButton.isEnabled = true
+        return true
+    }
+
+    @objc func browseSources() {
+        if let picked = files("Choose one or more source files.", multiple: true) { loadSources(picked) }
+    }
+
+    @objc func clearSources() {
+        sources = []
+        sourcesLabel.stringValue = "Drop videos here, or browse for files."
+        sourcesLabel.toolTip = nil
+        clearButton.isEnabled = false
+    }
+
+    func sourceFiles(_ prompt: String, multiple: Bool) -> [URL]? {
+        if sources.isEmpty { return files(prompt, multiple: multiple) }
+        if multiple {
+            if sources.count >= 2 { return sources }
+            guard let extras = files("Choose additional files to go with \(sources[0].lastPathComponent).",
+                                     multiple: true, directory: sources[0].deletingLastPathComponent()) else { return nil }
+            return sources + extras.filter { $0.standardizedFileURL != sources[0] }
+        }
+        if sources.count == 1 { return sources }
+        let labels = sources.enumerated().map { "\($0.offset + 1). \($0.element.lastPathComponent)" }
+        guard let choice = chooseOption("Choose a loaded file", labels) else { return nil }
+        return [sources[choice]]
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if processing {
-            alert("Export in progress", "Wait for the current export to finish before quitting.")
+            alert("Processing in progress", "Wait for the current operation to finish before quitting.")
             return .terminateCancel
         }
         if checking {
@@ -154,22 +284,68 @@ final class VFLR: NSObject, NSApplicationDelegate {
         }
     }
 
+    func setBanner(_ message: String, color: NSColor) {
+        status.stringValue = message
+        banner.layer?.backgroundColor = color.cgColor
+    }
+
+    func beginProcessing(_ message: String) {
+        processing = true
+        result = nil
+        revealButton.isHidden = true
+        operations.forEach { $0.isEnabled = false }
+        browseButton.isEnabled = false
+        clearButton.isEnabled = false
+        let start = ProcessInfo.processInfo.systemUptime
+        setBanner(message, color: NSColor(red: 0.78, green: 0.88, blue: 1, alpha: 1))
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let pulse = Timer(timeInterval: 0.06, repeats: true) { [weak self] _ in
+                let elapsed = ProcessInfo.processInfo.systemUptime - start
+                let phase = CGFloat((1 - cos(elapsed * 3)) / 2)
+                self?.banner.layer?.backgroundColor = NSColor(red: 0.78 - phase * 0.20,
+                                                               green: 0.88 - phase * 0.10, blue: 1, alpha: 1).cgColor
+            }
+            RunLoop.main.add(pulse, forMode: .common)
+            pulseTimer = pulse
+        }
+    }
+
+    func endProcessing(_ message: String, success: Bool) {
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        processing = false
+        operations.forEach { $0.isEnabled = !queued }
+        browseButton.isEnabled = !queued
+        clearButton.isEnabled = !queued && !sources.isEmpty
+        let color = success ? NSColor(red: 0.79, green: 0.93, blue: 0.82, alpha: 1)
+                            : NSColor(red: 1, green: 0.83, blue: 0.82, alpha: 1)
+        setBanner(message, color: color)
+    }
+
+    @objc func revealResult() {
+        if let result = result { NSWorkspace.shared.activateFileViewerSelecting([result]) }
+    }
+
     func export(_ arguments: [String]) {
         guard !processing, !queued else { return }
-        processing = true
-        operations.forEach { $0.isEnabled = false }
-        status.stringValue = "Exporting video…"
+        let messages = ["split": "Splitting movie", "join": "Joining parts", "link": "Linking videos",
+                        "upscale": "Upscaling video", "convert": "Converting video", "download": "Downloading media",
+                        "audio": "Processing audio", "subtitles": "Preparing subtitles", "layout": "Changing video layout"]
+        beginProcessing((messages[arguments[0]] ?? "Processing") + "… Please wait.")
         execute(resources.appendingPathComponent("engine.sh"), arguments) { success, output in
-            self.processing = false
-            self.operations.forEach { $0.isEnabled = !self.queued }
-            self.status.stringValue = success ? "Export finished." : "Export failed."
-            if success { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: output)]) }
-            else { self.alert("Export failed", String(output.suffix(4000))) }
+            let finished = success && !output.isEmpty
+            self.endProcessing(finished ? "Finished. Your result is ready." : "Processing failed.", success: finished)
+            if finished {
+                self.result = URL(fileURLWithPath: output)
+                self.revealButton.isHidden = false
+            } else {
+                self.alert("Processing failed", output.isEmpty ? "No result was created." : String(output.suffix(4000)))
+            }
         }
     }
 
     @objc func split() {
-        if let source = files("Choose the movie to split.", multiple: false)?.first { splitFile(source) }
+        if let source = sourceFiles("Choose the movie to split.", multiple: false)?.first { splitFile(source) }
     }
 
     func splitFile(_ source: URL) {
@@ -190,7 +366,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @objc func join() {
-        if let selected = files("Select all numbered movie parts.", multiple: true) { joinFiles(selected) }
+        if let selected = sourceFiles("Select all numbered movie parts.", multiple: true) { joinFiles(selected) }
     }
 
     func sorted(_ urls: [URL]) -> [URL] {
@@ -205,7 +381,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @objc func link() {
-        guard let selected = files("Select the videos to link.", multiple: true) else { return }
+        guard let selected = sourceFiles("Select the videos to link.", multiple: true) else { return }
         guard selected.count >= 2 else { alert("Choose at least two videos", "Select all clips you want to link."); return }
         var remaining = sorted(selected)
         var ordered: [URL] = []
@@ -228,7 +404,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @objc func upscale() {
-        guard let source = files("Choose the source video.", multiple: false)?.first else { return }
+        guard let source = sourceFiles("Choose the source video.", multiple: false)?.first else { return }
         let choice = alert("Upscale Video", "Fit the picture within the selected size while keeping its proportions.", ["1080p", "4K", "Cancel"])
         guard choice == 0 || choice == 1 else { return }
         let name = source.deletingPathExtension().lastPathComponent + (choice == 0 ? " 1080p.mp4" : " 4K.mp4")
@@ -278,7 +454,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     @objc func audioTools() {
         let options = [("MP3 audio", "mp3"), ("M4A audio", "m4a"), ("FLAC audio", "flac"),
                        ("WAV audio", "wav"), ("Remove audio (MKV)", "silent")]
-        guard let source = files("Choose the source video.", multiple: false)?.first,
+        guard let source = sourceFiles("Choose the source video.", multiple: false)?.first,
               let choice = chooseOption("Extract or Remove Audio", options.map { $0.0 },
                                         detail: "Audio extraction uses the first audio track.") else { return }
         let format = options[choice].1
@@ -290,7 +466,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
 
     @objc func addSubtitles() {
         let layouts = [("2D", "flat")] + stereoLayouts
-        guard let source = files("Choose the video that needs subtitles.", multiple: false)?.first,
+        guard let source = sourceFiles("Choose the video that needs subtitles.", multiple: false)?.first,
               let layout = chooseOption("Choose the video layout", layouts.map { $0.0 }),
               let method = chooseOption("Choose a subtitle source", ["Local subtitle file", "Search OpenSubtitles"],
                                         detail: "Online search requires OpenSubtitles credentials. See the User Guide.") else { return }
@@ -316,7 +492,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @objc func changeLayout() {
-        guard let source = files("Choose a 2D or packed 3D video.", multiple: false)?.first,
+        guard let source = sourceFiles("Choose a 2D or packed 3D video.", multiple: false)?.first,
               let choice = chooseOption("Change Aspect or Stereo Layout", ["2D aspect ratio", "3D stereo layout"]) else { return }
         var input = "flat"
         var output: String
@@ -339,7 +515,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @objc func convertVideo() {
-        guard let source = files("Choose any video supported by FFmpeg.", multiple: false)?.first else { return }
+        guard let source = sourceFiles("Choose any video supported by FFmpeg.", multiple: false)?.first else { return }
         let url = resources.appendingPathComponent("ConversionProfiles.tsv")
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
             alert("Conversion profiles unavailable", "Reinstall VFLR to restore the profiles.")
@@ -363,12 +539,16 @@ final class VFLR: NSObject, NSApplicationDelegate {
     }
 
     @objc func inspectMedia() {
-        guard let source = files("Choose a file to inspect with MediaInfo.", multiple: false)?.first else { return }
+        guard let source = sourceFiles("Choose a file to inspect with MediaInfo.", multiple: false)?.first else { return }
         let choice = alert("MediaInfo", "Choose a report view.", ["Summary", "Full Details", "JSON", "Cancel"])
         let views = ["summary", "full", "json"]
         guard views.indices.contains(choice) else { return }
+        guard !processing, !queued else { return }
+        beginProcessing("Reading media information… Please wait.")
         execute(resources.appendingPathComponent("engine.sh"), ["info", views[choice], source.path]) { success, output in
-            guard success, !output.isEmpty else {
+            let finished = success && !output.isEmpty
+            self.endProcessing(finished ? "Finished. MediaInfo report is ready." : "MediaInfo report unavailable.", success: finished)
+            guard finished else {
                 self.alert("MediaInfo report unavailable", output.isEmpty ? "MediaInfo did not recognize the selected file." : output)
                 return
             }
@@ -437,6 +617,8 @@ final class VFLR: NSObject, NSApplicationDelegate {
                 if prepared {
                     self.queued = true
                     self.operations.forEach { $0.isEnabled = false }
+                    self.browseButton.isEnabled = false
+                    self.clearButton.isEnabled = false
                     if !self.processing { self.status.stringValue = "Update ready. Quit VFLR to install." }
                     self.alert("Update ready", "Quit VFLR to install it, then reopen VFLR from Applications.")
                 } else {

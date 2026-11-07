@@ -8,7 +8,7 @@ $profiles = @(Get-Content (Join-Path $root ConversionProfiles.tsv) | ForEach-Obj
 $form = New-Object Windows.Forms.Form
 $form.Text = "VFLR $version - Video Fix Link Restore"
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object Drawing.Size(510, 511)
+$form.ClientSize = New-Object Drawing.Size(632, 423)
 $menu = New-Object Windows.Forms.MenuStrip
 $helpMenu = $menu.Items.Add('Help')
 $guide = $helpMenu.DropDownItems.Add('VFLR User Guide')
@@ -17,20 +17,101 @@ $update = $helpMenu.DropDownItems.Add('Check for Updates...')
 $update.Add_Click({ Check-Update $true })
 $form.Controls.Add($menu)
 $form.MainMenuStrip = $menu
-$status = New-Object Windows.Forms.Label
-$status.SetBounds(20, 469, 465, 35)
-$status.Text = 'Choose a video operation.'
-$form.Controls.Add($status)
+$form.FormBorderStyle = 'FixedSingle'
+$form.MaximizeBox = $false
+$tooltip = New-Object Windows.Forms.ToolTip
+$sourcesLabel = New-Object Windows.Forms.Label
+$sourcesLabel.SetBounds(18, 43, 420, 25)
+$sourcesLabel.Text = 'Drop videos here, or browse for files.'
+$sourcesLabel.AutoEllipsis = $true
+$form.Controls.Add($sourcesLabel)
+$browse = New-Object Windows.Forms.Button
+$browse.Text = 'Browse...'
+$browse.SetBounds(449, 39, 81, 27)
+$browse.Add_Click({ Set-Sources @(Pick-Files $true) })
+$form.Controls.Add($browse)
+$clear = New-Object Windows.Forms.Button
+$clear.Text = 'Clear'
+$clear.SetBounds(537, 39, 74, 27)
+$clear.Enabled = $false
+$clear.Add_Click({
+    $script:sources = @()
+    $sourcesLabel.Text = 'Drop videos here, or browse for files.'
+    $tooltip.SetToolTip($sourcesLabel, '')
+    $clear.Enabled = $false
+})
+$form.Controls.Add($clear)
+$script:sources = @()
+
 $buttons = @()
-$names = @('Split Movie','Join Parts','Link Videos','Upscale Video','MediaInfo','Convert Video','Download Online','Extract or Remove Audio','Add Subtitles','Change Aspect or Stereo Layout')
-for ($i = 0; $i -lt $names.Count; $i++) {
-    $button = New-Object Windows.Forms.Button
-    $button.Text = $names[$i]
-    $button.SetBounds(20, (44 + $i * 41), 245, 34)
-    $button.Add_Click({ param($sender, $eventArgs) Choose-Operation $sender.Text })
-    $form.Controls.Add($button)
-    $buttons += $button
+$groups = @(
+    @{ Title = 'Edit and Assemble'; X = 18; Y = 79; Tools = @('Split Movie','Join Parts','Link Videos') },
+    @{ Title = 'Picture and Format'; X = 322; Y = 79; Tools = @('Upscale Video','Convert Video','Change Aspect or Stereo Layout') },
+    @{ Title = 'Audio and Subtitles'; X = 18; Y = 226; Tools = @('Extract or Remove Audio','Add Subtitles') },
+    @{ Title = 'Inspect and Download'; X = 322; Y = 226; Tools = @('MediaInfo','Download Online') }
+)
+foreach ($group in $groups) {
+    $box = New-Object Windows.Forms.GroupBox
+    $box.Text = $group.Title
+    $box.SetBounds($group.X, $group.Y, 291, (31 + $group.Tools.Count * 35))
+    for ($i = 0; $i -lt $group.Tools.Count; $i++) {
+        $button = New-Object Windows.Forms.Button
+        $button.Text = $group.Tools[$i]
+        $button.SetBounds(12, (24 + $i * 35), 264, 28)
+        $button.Add_Click({ param($sender, $eventArgs) Choose-Operation $sender.Text })
+        $box.Controls.Add($button)
+        $buttons += $button
+    }
+    $form.Controls.Add($box)
 }
+
+$banner = New-Object Windows.Forms.Panel
+$banner.SetBounds(18, 353, 595, 47)
+$banner.BackColor = [Drawing.Color]::FromArgb(235,235,235)
+$status = New-Object Windows.Forms.Label
+$status.SetBounds(11, 14, 450, 23)
+$status.Text = 'Ready. Drop a video or choose a tool.'
+$status.ForeColor = [Drawing.Color]::FromArgb(35,35,35)
+$banner.Controls.Add($status)
+$reveal = New-Object Windows.Forms.Button
+$reveal.Text = 'Show Result'
+$reveal.SetBounds(482, 10, 102, 27)
+$reveal.Visible = $false
+$reveal.Add_Click({
+    if ($script:resultPath) {
+        Start-Process explorer.exe -ArgumentList ('/select,' + (Quote-Arg $script:resultPath))
+    }
+})
+$banner.Controls.Add($reveal)
+$form.Controls.Add($banner)
+
+function Set-Sources([string[]]$paths) {
+    if ($script:job -or $script:queued) { return }
+    $valid = @($paths | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -Unique)
+    if (-not $valid.Count) { return }
+    $script:sources = $valid
+    $sourcesLabel.Text = if ($valid.Count -eq 1) { [IO.Path]::GetFileName($valid[0]) } else { "$($valid.Count) files loaded" }
+    $tooltip.SetToolTip($sourcesLabel, ($valid -join "`n"))
+    $clear.Enabled = $true
+}
+
+function Enable-FileDrop($control) {
+    $control.AllowDrop = $true
+    $control.Add_DragEnter({
+        param($sender, $eventArgs)
+        if (-not $script:job -and -not $script:queued -and $eventArgs.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            $eventArgs.Effect = [Windows.Forms.DragDropEffects]::Copy
+        }
+    })
+    $control.Add_DragDrop({
+        param($sender, $eventArgs)
+        if ($eventArgs.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            Set-Sources ($eventArgs.Data.GetData([Windows.Forms.DataFormats]::FileDrop))
+        }
+    })
+    foreach ($child in $control.Controls) { Enable-FileDrop $child }
+}
+Enable-FileDrop $form
 
 function Notice($title, $message) {
     [void][Windows.Forms.MessageBox]::Show($form, $message, $title)
@@ -38,14 +119,28 @@ function Notice($title, $message) {
 function Confirm($title, $message) {
     [Windows.Forms.MessageBox]::Show($form, $message, $title, 'OKCancel') -eq 'OK'
 }
-function Pick-Files([bool]$multiple) {
+function Pick-Files([bool]$multiple, [string]$directory) {
     $dialog = New-Object Windows.Forms.OpenFileDialog
     try {
         $dialog.Multiselect = $multiple
+        if ($directory) { $dialog.InitialDirectory = $directory }
         $dialog.Filter = 'All files|*.*'
         if ($dialog.ShowDialog($form) -eq 'OK') { $dialog.FileNames }
     } finally { $dialog.Dispose() }
 }
+function Pick-Sources([bool]$multiple) {
+    if (-not $script:sources.Count) { Pick-Files $multiple; return }
+    if ($multiple) {
+        if ($script:sources.Count -ge 2) { $script:sources; return }
+        $extras = @(Pick-Files $true ([IO.Path]::GetDirectoryName($script:sources[0])))
+        if ($extras.Count) { ($script:sources + $extras) | Select-Object -Unique }
+        return
+    }
+    if ($script:sources.Count -eq 1) { $script:sources[0]; return }
+    $choice = Pick-Index 'Choose a loaded file' $script:sources
+    if ($choice -ge 0) { $script:sources[$choice] }
+}
+
 function Pick-Output($file, $extension, $suffix) {
     $dialog = New-Object Windows.Forms.SaveFileDialog
     try {
@@ -154,7 +249,18 @@ function Start-Engine([string[]]$arguments, [string]$reportName) {
         Report = $reportName
     }
     foreach ($button in $buttons) { $button.Enabled = $false }
-    $status.Text = 'Working...'
+    $browse.Enabled = $false
+    $clear.Enabled = $false
+    $script:resultPath = $null
+    $reveal.Visible = $false
+    $messages = @{
+        split='Splitting movie'; join='Joining parts'; link='Linking videos'; upscale='Upscaling video'
+        convert='Converting video'; download='Downloading media'; audio='Processing audio'
+        subtitles='Preparing subtitles'; layout='Changing video layout'; info='Reading media information'
+    }
+    $status.Text = $messages[$arguments[0]] + '... Please wait.'
+    $banner.BackColor = [Drawing.Color]::FromArgb(199,224,255)
+    $script:pulse = [Diagnostics.Stopwatch]::StartNew()
     $poll.Start()
 }
 function Show-Report($title, $report) {
@@ -176,9 +282,15 @@ function Show-Report($title, $report) {
 }
 $script:job = $null
 $poll = New-Object Windows.Forms.Timer
-$poll.Interval = 250
+$poll.Interval = 65
 $poll.Add_Tick({
-    if (-not $job.Process.HasExited -or -not $job.Output.IsCompleted -or -not $job.Errors.IsCompleted) { return }
+    if (-not $job.Process.HasExited -or -not $job.Output.IsCompleted -or -not $job.Errors.IsCompleted) {
+        if (-not [Windows.Forms.SystemInformation]::HighContrast) {
+            $phase = (1 - [Math]::Cos($script:pulse.Elapsed.TotalSeconds * 3)) / 2
+            $banner.BackColor = [Drawing.Color]::FromArgb([int](199 - 50 * $phase), [int](224 - 25 * $phase), 255)
+        }
+        return
+    }
     $poll.Stop()
     $result = $job.Output.Result.Trim()
     $errors = $job.Errors.Result.Trim()
@@ -187,16 +299,23 @@ $poll.Add_Tick({
     $job.Process.Dispose()
     $script:job = $null
     foreach ($button in $buttons) { $button.Enabled = -not $script:queued }
+    $browse.Enabled = -not $script:queued
+    $clear.Enabled = (-not $script:queued -and $script:sources.Count -gt 0)
     if ($code -ne 0 -or -not $result) {
-        $status.Text = 'Operation failed.'
+        $banner.BackColor = [Drawing.Color]::FromArgb(255,211,209)
+        $status.Text = 'Processing failed.'
         if (-not $errors) { $errors = 'The selected file could not be processed.' }
         Notice 'VFLR' $errors
-    } elseif ($report) {
-        $status.Text = 'Report ready.'
-        Show-Report $report $result
     } else {
-        $status.Text = 'Export finished.'
-        Start-Process explorer.exe -ArgumentList ('/select,' + (Quote-Arg $result))
+        $banner.BackColor = [Drawing.Color]::FromArgb(201,237,209)
+        if ($report) {
+            $status.Text = 'Finished. MediaInfo report is ready.'
+            Show-Report $report $result
+        } else {
+            $script:resultPath = $result
+            $status.Text = 'Finished. Your result is ready.'
+            $reveal.Visible = $true
+        }
     }
 })
 function Choose-Operation($operation) {
@@ -213,7 +332,7 @@ function Choose-Operation($operation) {
             return
         }
         $multiple = $operation -in @('Join Parts','Link Videos')
-        $files = @(Pick-Files $multiple)
+        $files = @(Pick-Sources $multiple)
         if (-not $files.Count) { return }
         if ($multiple -and $files.Count -lt 2) { Notice $operation 'Choose at least two files.'; return }
         $file = $files[0]
@@ -335,6 +454,8 @@ function Check-Update([bool]$manual) {
         catch { Remove-Item -LiteralPath $helper -Force; throw }
         $script:queued = $true
         foreach ($button in $buttons) { $button.Enabled = $false }
+        $browse.Enabled = $false
+        $clear.Enabled = $false
         $status.Text = 'Update queued. Close VFLR to install it.'
     } catch { if ($manual) { Notice 'Update check failed' $_.Exception.Message } }
 }

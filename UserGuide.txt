@@ -1,4 +1,4 @@
-VFLR 0.5.0 — Video Fix Link Restore
+VFLR 0.6.0 — Video Fix Link Restore
 
 Install and update
 On Mac, the first installation builds VFLR.app in Applications. It requires Apple
@@ -18,6 +18,25 @@ the update and close VFLR. Reopen it from Applications or the Start menu
 after installation. Help > VFLR User Guide opens
 the guide included with the installed version.
 
+Load files and choose a tool
+Drop files from Finder or File Explorer onto the VFLR window. On Mac,
+you can also drop them onto the VFLR app icon. A drop loads the files
+without starting a job. Browse is another way to load files. A new
+selection replaces the current one. Clear empties the selection.
+The current file name or file count is shown at the top of the window.
+
+For Join Parts or Link Videos, drop all the clips together. With several
+files loaded, a single-file tool asks which of those files to use.
+You can also click a tool first and choose the source in a file dialog.
+Download Online takes a page URL. Add Subtitles still asks for a
+subtitle file or an online search, even when the video is already loaded.
+
+Tools are grouped into Edit and Assemble, Picture and Format,
+Audio and Subtitles, and Inspect and Download. A pulsing blue banner
+names the active job. Green confirms completion and red marks a failure.
+After an export, click Show Result to reveal the file in Finder or
+File Explorer. The banner indicates activity without estimating progress.
+
 Split Movie
 Pick a video and choose 2–12 roughly equal parts. VFLR splits at nearby
 keyframes, copying the first video stream and all audio tracks without
@@ -26,8 +45,7 @@ On Mac, you can also drag one video onto the app to split it.
 
 Join Parts
 Choose all matching numbered parts. VFLR sorts the numbers and shows the
-order before copying the streams into one MP4. Choose each part explicitly
-if the Finder drop list is incomplete.
+order before copying the streams into one MP4. Check the list before continuing to make sure every part is included.
 
 Link Videos
 Select two or more clips and pick their playback order. The first clip sets
@@ -42,7 +60,7 @@ scaling and preserves the picture proportions. For example, 4:3 video
 becomes 1440×1080 at 1080p. Exports use H.264 MP4 and retain audio tracks
 as AAC. Link and Upscale omit subtitles.
 
-Finder reveals completed exports. Video exports go where you choose or,
+Video exports go where you choose or,
 for Split and Join Parts, beside the inputs. On Mac, app and update files live
 in Applications.
 

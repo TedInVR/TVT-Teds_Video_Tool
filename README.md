@@ -1,6 +1,7 @@
 # VFLR — Video Fix Link Restore
 
-VFLR is a macOS app for splitting, rejoining, linking, and upscaling videos.
+VFLR is a macOS app for splitting, rejoining, linking, and upscaling videos. Drop one or more source videos onto the window, then
+choose a tool. A status banner shows activity and the result.
 
 ## macOS
 
