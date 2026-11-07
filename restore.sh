@@ -74,6 +74,20 @@ for box in "$@"; do
     mask="$mask*clip(max(max($x0-X/W,X/W-$x1),max($y0-Y/H,Y/H-$y1))/0.015,0,1)"
 done
 [[ -d "$job" ]]
+report_stage() {
+    printf '%s\n' "$1" > "$job/status.next" && mv -f "$job/status.next" "$job/status" || true
+}
+report_model_output() {
+    local line
+    local chunk_pattern='Chunk ([0-9]+)/([0-9]+):'
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        printf '%s\n' "$line"
+        if [[ "$line" =~ $chunk_pattern ]]; then
+            report_stage "SeedVR2 · Chunk ${BASH_REMATCH[1]} of ${BASH_REMATCH[2]}"
+        fi
+    done
+}
+report_stage 'Preparing source video…'
 run() {
     if ! "$ffmpeg" -nostdin -hide_banner -loglevel error "$@" 2>"$job/ffmpeg.log"; then
         tail -c 4000 "$job/ffmpeg.log" >&2
@@ -93,15 +107,19 @@ run -n -ss "$start" -i "$source_file" -t "$length" -map 0:V:0 -map '0:a:0?' \
     -map_chapters -1 -c:v libx264 -preset ultrafast -crf 0 -pix_fmt yuv420p -c:a aac "$job/source.mp4"
 read -r width height <<< "$(video_value width,height "$job/source.mp4" | xargs)"
 # Keep the model input small while retaining a full-size source for compositing.
+report_stage 'Preparing frames for SeedVR2…'
 ratio='min(1,min(960/max(iw,ih),480/min(iw,ih)))'
 run -n -i "$job/source.mp4" -map 0:v:0 -vf "scale=w='max(2,trunc(iw*$ratio/2)*2)':h='max(2,trunc(ih*$ratio/2)*2)',setsar=1" \
     -an -c:v libx264 -preset ultrafast -crf 0 "$job/input.mp4"
 read -r mw mh <<< "$(video_value width,height "$job/input.mp4" | xargs)"
 if ((mh < mw)); then short=$mh; else short=$mw; fi
 
-if [[ -n "${VFLR_TEST_RESTORE:-}" ]]; then
-    "$VFLR_TEST_RESTORE" "$job/input.mp4" "$job/ai.mp4"
-else
+report_stage 'Loading SeedVR2 and starting restoration…'
+run_model() {
+    if [[ -n "${VFLR_TEST_RESTORE:-}" ]]; then
+        "$VFLR_TEST_RESTORE" "$job/input.mp4" "$job/ai.mp4"
+        return
+    fi
     [[ -f "$backend/.ready-$revision" ]] || { echo 'Install the AI Engine in TVT before creating a preview.' >&2; exit 1; }
     mkdir -p "$backend/models" "$backend/cache"
     export HF_HOME="$backend/cache"
@@ -112,12 +130,14 @@ else
     if [[ "$mode" == export ]]; then streaming=(--chunk_size 45); fi
     (
         cd "$backend"
-        ./venv/bin/python inference_cli.py "$job/input.mp4" --output "$job/ai.mp4" --output_format mp4 \
+        ./venv/bin/python -u inference_cli.py "$job/input.mp4" --output "$job/ai.mp4" --output_format mp4 \
             --video_backend ffmpeg --model_dir "$backend/models" --dit_model seedvr2_ema_3b_fp16.safetensors \
             --resolution "$short" --max_resolution 960 --batch_size 5 --uniform_batch_size --temporal_overlap 2 \
             --color_correction lab ${streaming[@]+"${streaming[@]}"}
-    ) >"$job/model.log" 2>&1 || { tail -c 4500 "$job/model.log" >&2; exit 1; }
-fi
+    )
+}
+run_model 2>&1 | report_model_output >"$job/model.log" || { tail -c 4500 "$job/model.log" >&2; exit 1; }
+report_stage 'Checking restored frames…'
 frames() {
     "$ffprobe" -v error -count_frames -select_streams V:0 -show_entries stream=nb_read_frames \
         -of default=nw=1:nk=1 "$1"
@@ -128,11 +148,13 @@ actual=$(frames "$job/ai.mp4")
     echo "The AI engine returned $actual frames for a $expected-frame clip. No comparison was exported." >&2
     exit 1
 }
+report_stage 'Applying protection boxes and encoding restored video…'
 # Apply the same source-luminance and rectangle mask to all three color planes.
 filter="[0:v]format=yuv444p,split[base][masksrc];[masksrc]geq=lum='$mask':cb='$mask':cr='$mask'[mask];[1:v]scale=$width:$height,setsar=1,format=yuv444p,setpts=N/($fps*TB)[ai];[base][ai][mask]maskedmerge[v]"
 run -n -i "$job/source.mp4" -i "$job/ai.mp4" -filter_complex_threads 1 -filter_complex "$filter" \
     -map '[v]' -map '0:a?' -c:v libx264 -crf 16 -pix_fmt yuv420p -c:a copy -movflags +faststart "$restored"
 if [[ "$mode" == export ]]; then
+    report_stage 'Saving restored video…'
     if ! (set -o noclobber; : > "$destination") 2>/dev/null; then
         echo 'The destination was taken while processing. Choose a different output name.' >&2
         exit 1
@@ -143,6 +165,7 @@ if [[ "$mode" == export ]]; then
     printf '%s\n' "$destination"
     exit 0
 fi
+report_stage 'Building before-and-after preview…'
 run -n -i "$job/source.mp4" -i "$restored" -filter_complex_threads 1 \
     -filter_complex '[0:v]scale=420:-2[a];[1:v]scale=420:-2[b];[a][b]hstack=shortest=1[v]' \
     -map '[v]' -an -c:v libx264 -crf 20 -pix_fmt yuv420p -movflags +faststart "$job/comparison.mp4"

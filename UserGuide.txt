@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.9
+Ted's Video Tool (TVT) 0.8.10
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -229,7 +229,9 @@ Choose Restore Selection to restore the entire marked range or, with
 the default selection, the whole video. Choose Gentle, Balanced, or
 Strong and save an MP4. TVT blends the model result into the source,
 preserves deep shadows and boxed areas, and keeps the first audio track.
-Gentle applies the least AI detail. Long jobs run in batches and can
+Gentle applies the least AI detail. The banner shows the filename and restoration stage. Full exports
+show the current SeedVR2 chunk and total while the model runs.
+Long jobs run in batches and can
 take substantial time and temporary disk space. There is no fixed
 duration limit for Restore Selection.
 

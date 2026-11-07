@@ -858,13 +858,21 @@ final class TVT: NSObject, NSApplicationDelegate {
         } catch { alert("Could not open restoration workspace", error.localizedDescription); return }
         if let editor = editor { window.endSheet(editor.window) }
         let preview = destination == nil
-        beginProcessing(preview ? "Restoring preview with SeedVR2… Please wait."
-                                 : "Restoring video with SeedVR2… Please wait.")
+        let filename = source.lastPathComponent
+        beginProcessing("Preparing AI Restore… · " + filename)
+        let progressFile = job.appendingPathComponent("status")
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let raw = try? String(contentsOf: progressFile, encoding: .utf8) else { return }
+            let stage = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stage.isEmpty { self?.status.stringValue = stage + " · " + filename }
+        }
+        RunLoop.main.add(timer, forMode: .common)
         let script = resources.appendingPathComponent("restore.sh")
         var args = [development.path, preview ? "preview" : "export", source.path, job.path,
                     mediaTime(start), mediaTime(length), strength]
         if let destination = destination { args.append(destination) }
         execute(script, args + boxes) { success, detail in
+            timer.invalidate()
             if success && preview {
                 self.endProcessing("Restored preview ready.", success: true)
                 let comparison = RestoreComparison(app: self, job: job, source: source, editor: editor)
