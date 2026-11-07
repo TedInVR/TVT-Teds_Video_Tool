@@ -1,26 +1,27 @@
-VFLR 0.8.2 — Video Fix Link Restore
+Ted's Video Tool (TVT) 0.8.3
 
 Install and update
-On Mac, the first installation builds VFLR.app in Applications. It requires Apple
+For the first upgrade from VFLR, use the installer in the GitHub README.
+On Mac, the first installation builds TVT.app in Applications. It requires Apple
 Command Line Tools and uses the Homebrew FFmpeg and ffprobe already installed
 at /opt/homebrew/bin. VFLR Development, also in Applications, holds temporary
 update files. Completed installations remove those files.
 
-On Windows, VFLR is installed per user in %LOCALAPPDATA%\Programs\VFLR
+On Windows, TVT is installed per user in %LOCALAPPDATA%\Programs\VFLR
 and opens from the Start menu. Install Git for Windows, Gyan FFmpeg,
 and MediaInfo CLI with the commands in the GitHub README. The Mac
 version uses Homebrew MediaInfo CLI (brew install media-info).
 
-Use Help > Check for Updates for a manual check. VFLR also checks at
+Use Help > Check for Updates for a manual check. TVT also checks at
 launch on Mac and every 15 minutes while open on both systems. On Mac,
 choose Download Update and quit when it is ready. On Windows, confirm
-the update and close VFLR. Reopen it from Applications or the Start menu
-after installation. Help > VFLR User Guide opens
+the update and close TVT. Reopen it from Applications or the Start menu
+after installation. Help > TVT User Guide opens
 the guide included with the installed version.
 
 Load files and choose a tool
-Drop files from Finder or File Explorer onto the VFLR window. On Mac,
-you can also drop them onto the VFLR app icon. A drop loads the files
+Drop files from Finder or File Explorer onto the TVT window. On Mac,
+you can also drop them onto the TVT app icon. A drop loads the files
 without starting a job. Browse is another way to load files. A new
 selection replaces the current one. Clear empties the selection.
 The current file name or file count is shown at the top of the window.
@@ -48,31 +49,31 @@ The original file stays in place.
 The trim editor accepts local videos with a readable duration that
 FFmpeg can decode. Previews show the packed picture, including both
 eyes of SBS or Over-Under footage or the source VR projection. Exports
-preserve that picture layout. MKV is the default. VFLR re-encodes the
+preserve that picture layout. MKV is the default. TVT re-encodes the
 main video and audio tracks so the cut can begin between keyframes.
 Subtitle tracks and chapters are omitted. Player-specific VR or 3D
 metadata may need to be restored separately for automatic detection
 on a headset or player.
 
 Split Movie
-Pick a video and choose 2–12 roughly equal parts. VFLR splits at nearby
+Pick a video and choose 2–12 roughly equal parts. TVT splits at nearby
 keyframes, copying the first video stream and all audio tracks without
 re-encoding. The MP4 parts are saved in a folder beside the original.
 On Mac, you can also drag one video onto the app to split it.
 
 Join Parts
-Choose all matching numbered parts. VFLR sorts the numbers and shows the
+Choose all matching numbered parts. TVT sorts the numbers and shows the
 order before copying the streams into one MP4. Check the list before continuing to make sure every part is included.
 
 Link Videos
 Select two or more clips and pick their playback order. The first clip sets
 the frame size and rate. Different shapes are fitted with black padding.
-VFLR includes the full clips, including credits and recaps. Each clip
+TVT includes the full clips, including credits and recaps. Each clip
 contributes its first audio track in stereo or silence if it has no audio.
 The output is an H.264 MP4 with AAC audio.
 
 Upscale Video
-Choose 1080p (up to 1920×1080) or 4K (up to 3840×2160). VFLR uses Lanczos
+Choose 1080p (up to 1920×1080) or 4K (up to 3840×2160). TVT uses Lanczos
 scaling and preserves the picture proportions. For example, 4:3 video
 becomes 1440×1080 at 1080p. Exports use H.264 MP4 and retain audio tracks
 as AAC. Link and Upscale omit subtitles.
@@ -83,7 +84,7 @@ in Applications.
 
 
 MediaInfo
-Choose a media file, then Summary, Full Details, or JSON. VFLR runs the
+Choose a media file, then Summary, Full Details, or JSON. TVT runs the
 official MediaInfo CLI and displays its output inside the app. Reports
 include the available container, video, audio, subtitle and chapter data,
 such as codecs, resolution, frame rate, bitrate, color details, language
@@ -92,7 +93,7 @@ by MediaInfo. JSON can be copied into another tool. Select and copy
 report text on either platform.
 
 Convert Video
-Choose a local video and select a preset. VFLR accepts formats and
+Choose a local video and select a preset. TVT accepts formats and
 codecs supported by your FFmpeg build, including many MP4, MKV, MOV,
 AVI, WebM, MPEG, MTS and TS files. Output choices:
   MP4    H.264 video / AAC audio
@@ -110,7 +111,7 @@ numbered files that can be joined by stream copy.
 
 Download Online
 Paste one video page URL, then choose Video (MKV) or Audio Only (MP3).
-VFLR uses yt-dlp, the same download engine used by Stacher. Supported
+TVT uses yt-dlp, the same download engine used by Stacher. Supported
 sites and formats depend on yt-dlp and the page. Private, protected, or
 sign-in-only videos may be unavailable. Download material you have
 permission to save. Install yt-dlp and Deno using the GitHub README.
@@ -124,7 +125,7 @@ copies video and compatible subtitle streams without re-encoding them.
 Add Subtitles
 Choose a 2D video or the matching full/half Side-by-Side or Over-Under
 layout (left eye first). Choose a local SRT, ASS, or WebVTT text file,
-or Search OpenSubtitles. VFLR creates an MKV with an additional,
+or Search OpenSubtitles. TVT creates an MKV with an additional,
 selectable subtitle track. Video and audio are copied. The added track
 starts disabled unless the player's subtitle preferences select it.
 Text files are normalized to plain timed text, so original ASS styling
@@ -148,13 +149,13 @@ OpenSubtitles setup
    you can add a "token" field. The provider controls download quotas.
 3. Choose Search OpenSubtitles and enter the film title and year, or a
    series title followed by S01E01, plus a language code such as en.
-   VFLR tries a file hash match first, then downloads the best available
+   TVT tries a file hash match first, then downloads the best available
    title match and adds it to the MKV. Check timing when a title match
    comes from a different release. Local subtitles work without a key.
    Python 3 is required for online lookup and stereo subtitle authoring.
 
 Change Aspect or Stereo Layout
-For 2D footage, choose 16:9, 4:3, 1:1, or 9:16. VFLR adds black padding
+For 2D footage, choose 16:9, 4:3, 1:1, or 9:16. TVT adds black padding
 to fit the whole picture. For 3D footage, choose the current and desired
 layout. The converter supports Full SBS, Half SBS, Full Over-Under,
 and Half Over-Under in left-eye-first order. Choose Half SBS as the
@@ -164,7 +165,7 @@ the subtitle positions match the new frame.
 
 
 AI Restore (Apple Silicon Mac)
-Drop an SDR video into VFLR and choose AI Restore in Picture and Format.
+Drop an SDR video into TVT and choose AI Restore in Picture and Format.
 Choose Install AI Engine on the first run. If needed, run
 brew install python@3.12 in Terminal and retry. SeedVR2 and its weights
 are stored in /Applications/VFLR Development. The first restoration
@@ -184,7 +185,7 @@ Save Restored Clip saves the short sample if you want a copy.
 
 Choose Restore Selection to restore the entire marked range or, with
 the default selection, the whole video. Choose Gentle, Balanced, or
-Strong and save an MP4. VFLR blends the model result into the source,
+Strong and save an MP4. TVT blends the model result into the source,
 preserves deep shadows and boxed areas, and keeps the first audio track.
 Gentle applies the least AI detail. Long jobs run in batches and can
 take substantial time and temporary disk space. There is no fixed

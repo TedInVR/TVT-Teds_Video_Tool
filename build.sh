@@ -6,16 +6,16 @@ version=$(cat VERSION)
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 contents="$app/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources"
-MACOSX_DEPLOYMENT_TARGET=12.0 /usr/bin/xcrun swiftc -O VFLR.swift -o "$contents/MacOS/VFLR"
+MACOSX_DEPLOYMENT_TARGET=12.0 /usr/bin/xcrun swiftc -O VFLR.swift -o "$contents/MacOS/TVT"
 cp engine.sh update.sh UserGuide.txt VFLR.icns ConversionProfiles.tsv subtitle_tools.py restore.sh "$contents/Resources/"
 cat > "$contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>VFLR</string>
+<key>CFBundleExecutable</key><string>TVT</string>
 <key>CFBundleIdentifier</key><string>com.tedinvr.vflr</string>
-<key>CFBundleName</key><string>VFLR</string>
-<key>CFBundleDisplayName</key><string>VFLR</string>
+<key>CFBundleName</key><string>Ted's Video Tool</string>
+<key>CFBundleDisplayName</key><string>Ted's Video Tool</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>VFLR.icns</string>
 <key>CFBundleShortVersionString</key><string>$version</string>

@@ -4,7 +4,7 @@ param(
     [int]$ParentId
 )
 $ErrorActionPreference = 'Stop'
-$repo = 'TedInVR/VFLR_VideoFixLinkRestore'
+$repo = 'TedInVR/TVT-Teds_Video_Tool'
 $install = Join-Path $env:LOCALAPPDATA 'Programs\VFLR'
 $current = Join-Path $install 'App'
 $stage = Join-Path $install ('.stage-' + [guid]::NewGuid())
@@ -24,10 +24,10 @@ try {
     $expanded = Join-Path $stage 'source'
     Expand-Archive -LiteralPath $archive -DestinationPath $expanded
     $source = @(Get-ChildItem -LiteralPath $expanded -Directory)
-    if ($source.Count -ne 1) { throw 'Unexpected VFLR source package.' }
+    if ($source.Count -ne 1) { throw 'Unexpected TVT source package.' }
     $candidate = $source[0].FullName
     if ([version](Get-Content -LiteralPath (Join-Path $candidate 'VERSION') -Raw).Trim() -ne $Version) {
-        throw 'The downloaded VFLR version did not match the update.'
+        throw 'The downloaded TVT version did not match the update.'
     }
     if ($ParentId) {
         $parent = Get-Process -Id $ParentId -ErrorAction SilentlyContinue
@@ -35,7 +35,7 @@ try {
     }
     $other = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
         Where-Object { $_.CommandLine -and $_.CommandLine.Contains((Join-Path $current 'windows\VFLR.ps1')) }
-    if ($other) { throw 'Close VFLR before installing.' }
+    if ($other) { throw 'Close TVT before installing.' }
     $previous = Join-Path $stage 'Previous'
     if (Test-Path -LiteralPath $current) { Move-Item -LiteralPath $current -Destination $previous }
     try { Move-Item -LiteralPath $candidate -Destination $current }
@@ -47,17 +47,19 @@ try {
         throw
     }
     $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'VFLR.lnk'))
+    $shortcut = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) "Ted's Video Tool.lnk"))
     $shortcut.TargetPath = Join-Path $PSHOME 'powershell.exe'
     $shortcut.Arguments = '-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + (Join-Path $current 'windows\VFLR.ps1') + '"'
     $shortcut.WorkingDirectory = $current
     $shortcut.IconLocation = (Join-Path $current 'windows\VFLR.ico') + ',0'
     $shortcut.Save()
-    if (-not $ParentId) { Write-Host "Installed VFLR $Version. Open VFLR from the Start menu." }
+    $legacyShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'VFLR.lnk'
+    if (Test-Path -LiteralPath $legacyShortcut) { Remove-Item -LiteralPath $legacyShortcut -ErrorAction SilentlyContinue }
+    if (-not $ParentId) { Write-Host "Installed TVT $Version. Open Ted's Video Tool from the Start menu." }
 } catch {
     if (-not $ParentId) { throw }
     Add-Type -AssemblyName System.Windows.Forms
-    [void][Windows.Forms.MessageBox]::Show($_.Exception.Message, 'VFLR update failed')
+    [void][Windows.Forms.MessageBox]::Show($_.Exception.Message, 'TVT update failed')
 } finally {
     if ($stage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force }
     if ($lock) { $lock.Dispose() }

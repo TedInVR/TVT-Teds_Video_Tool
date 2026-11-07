@@ -102,7 +102,7 @@ if ((mh < mw)); then short=$mh; else short=$mw; fi
 if [[ -n "${VFLR_TEST_RESTORE:-}" ]]; then
     "$VFLR_TEST_RESTORE" "$job/input.mp4" "$job/ai.mp4"
 else
-    [[ -f "$backend/.ready-$revision" ]] || { echo 'Install the AI Engine in VFLR before creating a preview.' >&2; exit 1; }
+    [[ -f "$backend/.ready-$revision" ]] || { echo 'Install the AI Engine in TVT before creating a preview.' >&2; exit 1; }
     mkdir -p "$backend/models" "$backend/cache"
     export HF_HOME="$backend/cache"
     export PYTORCH_ENABLE_MPS_FALLBACK=1

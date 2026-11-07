@@ -3,15 +3,15 @@ Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $root = Split-Path $PSScriptRoot
 $version = [version](Get-Content (Join-Path $root VERSION) -Raw).Trim()
-$repo = 'TedInVR/VFLR_VideoFixLinkRestore'
+$repo = 'TedInVR/TVT-Teds_Video_Tool'
 $profiles = @(Get-Content (Join-Path $root ConversionProfiles.tsv) | ForEach-Object { ,($_ -split "`t", 3) })
 $form = New-Object Windows.Forms.Form
-$form.Text = "VFLR $version - Video Fix Link Restore"
+$form.Text = "Ted's Video Tool (TVT) $version"
 $form.StartPosition = 'CenterScreen'
 $form.ClientSize = New-Object Drawing.Size(632, 460)
 $menu = New-Object Windows.Forms.MenuStrip
 $helpMenu = $menu.Items.Add('Help')
-$guide = $helpMenu.DropDownItems.Add('VFLR User Guide')
+$guide = $helpMenu.DropDownItems.Add('TVT User Guide')
 $guide.Add_Click({ Start-Process notepad.exe -ArgumentList (Quote-Arg (Join-Path $root 'UserGuide.txt')) })
 $update = $helpMenu.DropDownItems.Add('Check for Updates...')
 $update.Add_Click({ Check-Update $true })
@@ -210,7 +210,7 @@ function Quote-Arg([string]$value) {
 function Find-Tool([string]$name) {
     $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command) { return $command.Source }
-    throw "$name is required. See Help > VFLR User Guide for installation."
+    throw "$name is required. See Help > TVT User Guide for installation."
 }
 function New-EngineProcess([string[]]$arguments) {
     $process = New-Object Diagnostics.Process
@@ -219,7 +219,7 @@ function New-EngineProcess([string[]]$arguments) {
     if (-not (Test-Path -LiteralPath $info.FileName)) {
         $info.FileName = Join-Path $env:LOCALAPPDATA 'Programs\Git\bin\bash.exe'
     }
-    if (-not (Test-Path -LiteralPath $info.FileName)) { throw 'Git for Windows is required. See the VFLR User Guide.' }
+    if (-not (Test-Path -LiteralPath $info.FileName)) { throw 'Git for Windows is required. See the TVT User Guide.' }
     if ($arguments[0] -eq 'info') {
         $info.EnvironmentVariables['VFLR_MEDIAINFO'] = (Find-Tool 'mediainfo.exe').Replace('\','/')
     } else {
@@ -311,7 +311,7 @@ $poll.Add_Tick({
         $banner.BackColor = [Drawing.Color]::FromArgb(255,211,209)
         $status.Text = 'Processing failed.'
         if (-not $errors) { $errors = 'The selected file could not be processed.' }
-        Notice 'VFLR' $errors
+        Notice 'TVT' $errors
     } else {
         $banner.BackColor = [Drawing.Color]::FromArgb(201,237,209)
         if ($trimSource) {
@@ -324,7 +324,7 @@ $poll.Add_Tick({
             } catch {
                 $banner.BackColor = [Drawing.Color]::FromArgb(255,211,209)
                 $status.Text = 'Trim editor could not open.'
-                Notice 'VFLR' $_.Exception.Message
+                Notice 'TVT' $_.Exception.Message
             }
         } elseif ($report) {
             $status.Text = 'Finished. MediaInfo report is ready.'
@@ -600,18 +600,18 @@ function Choose-Operation($operation) {
                 if ($destination) { Start-Engine @('convert',$extension,$file,$destination) }
             }
         }
-    } catch { Notice 'VFLR' $_.Exception.Message }
+    } catch { Notice 'TVT' $_.Exception.Message }
 }
 $script:queued = $false
 function Check-Update([bool]$manual) {
-    if ($script:queued) { if ($manual) { Notice 'VFLR' 'Close VFLR to install the update.' }; return }
-    if ($job -or $script:trim) { if ($manual) { Notice 'VFLR' 'Wait until the current operation finishes.' }; return }
+    if ($script:queued) { if ($manual) { Notice 'TVT' 'Close TVT to install the update.' }; return }
+    if ($job -or $script:trim) { if ($manual) { Notice 'TVT' 'Wait until the current operation finishes.' }; return }
     try {
         $commit = (Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/main" -TimeoutSec 12).sha
         if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'GitHub did not return a valid version reference.' }
         $release = [version](Invoke-RestMethod -Uri "https://raw.githubusercontent.com/$repo/$commit/VERSION" -TimeoutSec 12).Trim()
-        if ($release -le $version) { if ($manual) { Notice 'VFLR' "VFLR $version is up to date." }; return }
-        if (-not (Confirm 'VFLR Update' "Version $release is available. Queue installation for when VFLR closes?")) { return }
+        if ($release -le $version) { if ($manual) { Notice 'TVT' "TVT $version is up to date." }; return }
+        if (-not (Confirm 'TVT Update' "Version $release is available. Queue installation for when TVT closes?")) { return }
         $install = Split-Path $root
         $helper = Join-Path $install ('Update-' + [guid]::NewGuid() + '.ps1')
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-VFLR.ps1') -Destination $helper
@@ -622,7 +622,7 @@ function Check-Update([bool]$manual) {
         foreach ($button in $buttons) { $button.Enabled = $false }
         $browse.Enabled = $false
         $clear.Enabled = $false
-        $status.Text = 'Update queued. Close VFLR to install it.'
+        $status.Text = 'Update queued. Close TVT to install it.'
     } catch { if ($manual) { Notice 'Update check failed' $_.Exception.Message } }
 }
 $updates = New-Object Windows.Forms.Timer
@@ -631,6 +631,6 @@ $updates.Add_Tick({ Check-Update $false })
 $form.Add_Shown({ $updates.Start() })
 $form.Add_FormClosing({
     param($sender, $eventArgs)
-    if ($job) { $eventArgs.Cancel = $true; Notice 'VFLR' 'Wait for the current operation to finish before closing.' }
+    if ($job) { $eventArgs.Cancel = $true; Notice 'TVT' 'Wait for the current operation to finish before closing.' }
 })
 [void]$form.ShowDialog()

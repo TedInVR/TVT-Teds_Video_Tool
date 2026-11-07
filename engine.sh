@@ -23,7 +23,7 @@ fi
 FFMPEG=${MOVIEPARTS_FFMPEG:-/opt/homebrew/bin/ffmpeg}
 FFPROBE=${MOVIEPARTS_FFPROBE:-/opt/homebrew/bin/ffprobe}
 if [[ ! -x "$FFMPEG" || ! -x "$FFPROBE" ]]; then
-    echo 'FFmpeg and ffprobe are required. See the VFLR User Guide for setup.' >&2
+    echo 'FFmpeg and ffprobe are required. See the TVT User Guide for setup.' >&2
     exit 1
 fi
 work_dir=''
@@ -196,7 +196,7 @@ elif [[ "$mode" == subtitles ]]; then
     esac
     index=$("$FFPROBE" -v error -select_streams s -show_entries stream=index -of csv=p=0 "$source_file" | awk 'END { print NR }')
     run_ffmpeg -n -i "$source_file" -i "$captions" -map 0 -map '-0:d?' -map 1:s:0 -c copy \
-        -metadata:s:s:"$index" title='VFLR Subtitles' -disposition:s:"$index" 0 "$output_stage/result.mkv"
+        -metadata:s:s:"$index" title='TVT Subtitles' -disposition:s:"$index" 0 "$output_stage/result.mkv"
     publish "$output_stage/result.mkv" "$destination"
 elif [[ "$mode" == layout ]]; then
     input=$1

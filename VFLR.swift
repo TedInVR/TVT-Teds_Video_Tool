@@ -85,10 +85,10 @@ final class RestoreComparison: NSObject {
     let playerView = AVPlayerView()
     let job: URL
     let source: URL
-    weak var app: VFLR?
+    weak var app: TVT?
     let editor: TrimEditor?
 
-    init(app: VFLR, job: URL, source: URL, editor: TrimEditor?) {
+    init(app: TVT, job: URL, source: URL, editor: TrimEditor?) {
         self.app = app
         self.job = job
         self.source = source
@@ -176,14 +176,14 @@ final class TrimEditor: NSObject {
     let duration: Double
     let restoring: Bool
     let directory: URL
-    weak var app: VFLR?
+    weak var app: TVT?
     var start = 0.0
     var end: Double
     var requestedTime: Double?
     var previewInFlight = false
     var closed = false
 
-    init(app: VFLR, source: URL, duration: Double, restoring: Bool = false) throws {
+    init(app: TVT, source: URL, duration: Double, restoring: Bool = false) throws {
         self.app = app
         self.source = source
         self.duration = duration
@@ -349,7 +349,7 @@ final class TrimEditor: NSObject {
     }
 }
 
-final class VFLR: NSObject, NSApplicationDelegate {
+final class TVT: NSObject, NSApplicationDelegate {
     let resources = Bundle.main.resourceURL!
     let development = URL(fileURLWithPath: "/Applications/VFLR Development", isDirectory: true)
     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
@@ -380,10 +380,10 @@ final class VFLR: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let app = NSMenuItem()
         menu.addItem(app)
-        app.submenu = NSMenu(title: "VFLR")
-        app.submenu?.addItem(withTitle: "About VFLR", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.submenu = NSMenu(title: "Ted's Video Tool")
+        app.submenu?.addItem(withTitle: "About Ted's Video Tool", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.submenu?.addItem(.separator())
-        app.submenu?.addItem(withTitle: "Quit VFLR", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.submenu?.addItem(withTitle: "Quit Ted's Video Tool", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         let windowMenu = NSMenuItem()
         menu.addItem(windowMenu)
@@ -393,7 +393,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
         let help = NSMenuItem()
         menu.addItem(help)
         help.submenu = NSMenu(title: "Help")
-        for (title, action) in [("VFLR User Guide", #selector(showGuide)), ("Check for Updates…", #selector(checkManually))] {
+        for (title, action) in [("TVT User Guide", #selector(showGuide)), ("Check for Updates…", #selector(checkManually))] {
             let item = help.submenu!.addItem(withTitle: title, action: action, keyEquivalent: "")
             item.target = self
         }
@@ -402,7 +402,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 460),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "VFLR — Video Fix Link Restore"
+        window.title = "Ted's Video Tool"
         window.isReleasedWhenClosed = false
         let dropView = VideoDropView()
         dropView.registerForDraggedTypes([.fileURL])
@@ -720,13 +720,13 @@ final class VFLR: NSObject, NSApplicationDelegate {
             if ready {
                 self.openEditor(source, restoring: true)
             } else if self.alert("Install AI Engine?",
-                                 "VFLR will install SeedVR2 3B under Applications. The first restoration downloads several gigabytes of model files. Restoration runs on this Mac.",
+                                 "TVT will install SeedVR2 3B under Applications. The first restoration downloads several gigabytes of model files. Restoration runs on this Mac.",
                                  ["Install AI Engine", "Cancel"]) == 0 {
                 self.beginProcessing("Installing AI engine… Please wait.")
                 self.execute(script, [self.development.path, "setup"]) { success, detail in
                     self.endProcessing(success ? "AI engine installed." : "AI engine setup failed.", success: success)
                     if success { self.openEditor(source, restoring: true) }
-                    else { self.alert("Could not install AI engine", detail.isEmpty ? "See the VFLR User Guide for setup." : detail) }
+                    else { self.alert("Could not install AI engine", detail.isEmpty ? "See the TVT User Guide for setup." : detail) }
                 }
             }
         }
@@ -924,7 +924,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
         if choice == 0 {
             let ratios = ["16:9", "4:3", "1:1", "9:16"]
             guard let ratio = chooseOption("Choose an aspect ratio", ratios,
-                                           detail: "VFLR adds padding to fit the entire picture.") else { return }
+                                           detail: "TVT adds padding to fit the entire picture.") else { return }
             output = ratios[ratio]
         } else {
             let names = stereoLayouts.map { $0.0 }
@@ -942,7 +942,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
     func conversionProfiles() -> [[String]] {
         let url = resources.appendingPathComponent("ConversionProfiles.tsv")
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
-            alert("Conversion profiles unavailable", "Reinstall VFLR to restore the profiles.")
+            alert("Conversion profiles unavailable", "Reinstall TVT to restore the profiles.")
             return []
         }
         return contents.split(separator: "\n").map { $0.split(separator: "\t").map(String.init) }.filter { $0.count == 3 }
@@ -1017,7 +1017,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
 
     func checkUpdate(manual: Bool) {
         if queued {
-            if manual { alert("Update ready", "Quit VFLR to install the downloaded update.") }
+            if manual { alert("Update ready", "Quit TVT to install the downloaded update.") }
             return
         }
         if checking {
@@ -1033,13 +1033,13 @@ final class VFLR: NSObject, NSApplicationDelegate {
                 return
             }
             if output.isEmpty {
-                if manual { self.alert("VFLR is up to date", "You have version \(self.version).") }
+                if manual { self.alert("TVT is up to date", "You have version \(self.version).") }
                 return
             }
             let fields = output.split(separator: " ").map(String.init)
             guard fields.count == 2 else { return }
             if self.trimEditor != nil || self.restoreComparison != nil || self.processing { return }
-            if self.alert("VFLR \(fields[0]) is available", "VFLR will download the update and install it after you quit.", ["Download Update", "Later"]) != 0 { return }
+            if self.alert("TVT \(fields[0]) is available", "TVT will download the update and install it after you quit.", ["Download Update", "Later"]) != 0 { return }
             self.checking = true
             self.execute(script, ["prepare", fields[0], fields[1], String(ProcessInfo.processInfo.processIdentifier)]) { prepared, detail in
                 self.checking = false
@@ -1048,8 +1048,8 @@ final class VFLR: NSObject, NSApplicationDelegate {
                     self.operations.forEach { $0.isEnabled = false }
                     self.browseButton.isEnabled = false
                     self.clearButton.isEnabled = false
-                    if !self.processing { self.status.stringValue = "Update ready. Quit VFLR to install." }
-                    self.alert("Update ready", "Quit VFLR to install it, then reopen VFLR from Applications.")
+                    if !self.processing { self.status.stringValue = "Update ready. Quit TVT to install." }
+                    self.alert("Update ready", "Quit TVT to install it, then reopen TVT from Applications.")
                 } else {
                     self.alert("Could not prepare update", String(detail.suffix(2500)))
                 }
@@ -1059,7 +1059,7 @@ final class VFLR: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
-let delegate = VFLR()
+let delegate = TVT()
 app.delegate = delegate
 app.setActivationPolicy(.regular)
 app.run()
