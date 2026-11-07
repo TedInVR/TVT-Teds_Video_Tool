@@ -21,7 +21,7 @@ final class VideoDropView: NSView {
 }
 
 final class ProtectionPreview: NSImageView {
-    var enabled = false
+    var protectionDrawingEnabled = false
     var boxes: [NSRect] = []
     var origin: NSPoint?
     var pending: NSRect?
@@ -41,7 +41,7 @@ final class ProtectionPreview: NSImageView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard enabled, boxes.count < 8, picture.width > 0,
+        guard protectionDrawingEnabled, boxes.count < 8, picture.width > 0,
               picture.contains(convert(event.locationInWindow, from: nil)) else { return }
         origin = point(event)
     }
@@ -63,7 +63,7 @@ final class ProtectionPreview: NSImageView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard enabled else { return }
+        guard protectionDrawingEnabled else { return }
         let area = picture
         let rectangles = boxes + (pending.map { [$0] } ?? [])
         for box in rectangles {
@@ -195,7 +195,7 @@ final class TrimEditor: NSObject {
         window.title = (restoring ? "AI Restore — " : "Trim Clip — ") + source.lastPathComponent
         if restoring {
             window.setContentSize(NSSize(width: 810, height: 620))
-            image.enabled = true
+            image.protectionDrawingEnabled = true
             saveButton.title = "Restore Selection…"
         }
         let content = NSView()

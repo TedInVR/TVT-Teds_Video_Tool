@@ -62,7 +62,7 @@ On Apple Silicon, **Picture and Format → AI Restore** opens SeedVR2 3B restora
 whole video or a selected range, with an optional five-second comparison.
 Install Homebrew Python 3.12 with `brew install python@3.12` if needed,
 then use **Install AI Engine** in VFLR. The runtime and weights are
-stored under Applications. This feature is Mac-only in 0.8.1.
+stored under Applications. This feature is Mac-only.
 
 The [SeedVR2 model](https://huggingface.co/ByteDance-Seed/SeedVR2-3B) and
 [standalone integration](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler)

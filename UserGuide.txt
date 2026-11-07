@@ -1,4 +1,4 @@
-VFLR 0.8.1 — Video Fix Link Restore
+VFLR 0.8.2 — Video Fix Link Restore
 
 Install and update
 On Mac, the first installation builds VFLR.app in Applications. It requires Apple

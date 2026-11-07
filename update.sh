@@ -34,6 +34,7 @@ stage_build() {
         echo 'Install the Apple Command Line Tools with xcode-select --install, then try again.' >&2
         exit 1
     fi
+    printf 'Building VFLR %s for this Mac…\n' "$version" >&2
     mkdir "$stage/source" "$stage/tmp"
     download "https://codeload.github.com/$repo/tar.gz/$sha" -o "$stage/source.tar.gz"
     /usr/bin/tar -xzf "$stage/source.tar.gz" --strip-components 1 -C "$stage/source"
@@ -105,9 +106,9 @@ case "${1:-bootstrap}" in
         fi
         ;;
     bootstrap)
-        if [[ -e "$target" ]]; then
-            echo 'VFLR.app already exists. Quit it before running this installer.' >&2
-            if /usr/bin/pgrep -x VFLR >/dev/null; then exit 1; fi
+        if /usr/bin/pgrep -x VFLR >/dev/null; then
+            echo 'VFLR is running. Quit it before running this installer.' >&2
+            exit 1
         fi
         release=$(check_release 0.0.0)
         read -r version sha <<< "$release"
