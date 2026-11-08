@@ -238,6 +238,11 @@ elif [[ "$mode" == subtitles ]]; then
             ;;
         *) exit 1 ;;
     esac
+    if [[ "$layout" != flat && "${destination##*.}" =~ ^[Aa][Ss][Ss]$ ]]; then
+        mv "$captions" "$output_stage/result.ass"
+        publish "$output_stage/result.ass" "$destination"
+        exit 0
+    fi
     index=$("$FFPROBE" -v error -select_streams s -show_entries stream=index -of csv=p=0 "$source_file" | awk 'END { print NR }')
     run_ffmpeg -n -i "$source_file" -i "$captions" -map 0 -map '-0:d?' -map 1:s:0 -c copy \
         -metadata:s:s:"$index" title='TVT Subtitles' -disposition:s:"$index" 0 "$output_stage/result.mkv"

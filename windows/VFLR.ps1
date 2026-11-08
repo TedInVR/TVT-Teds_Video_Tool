@@ -158,7 +158,8 @@ function Pick-Output($file, $extension, $suffix, $owner = $form) {
     $dialog = New-Object Windows.Forms.SaveFileDialog
     try {
         $dialog.InitialDirectory = [IO.Path]::GetDirectoryName($file)
-        $dialog.FileName = [IO.Path]::GetFileNameWithoutExtension($file) + " $suffix.$extension"
+        $label = if ($suffix) { " $suffix" } else { '' }
+        $dialog.FileName = [IO.Path]::GetFileNameWithoutExtension($file) + "$label.$extension"
         $dialog.Filter = "$extension files|*.$extension"
         $dialog.DefaultExt = $extension
         $dialog.OverwritePrompt = $false
@@ -769,7 +770,17 @@ function Choose-Operation($operation) {
                     if (-not $language) { return }
                     $inputArgs = @('online',$title,$language)
                 }
-                $destination = Pick-Output $file 'mkv' 'Subtitled'
+                $extension = 'mkv'
+                $suffix = 'Subtitled'
+                if ($choice -gt 0) {
+                    $format = Pick-Index 'Save 3D subtitles' @('Separate ASS file (recommended for VLC)','Embed in a new MKV')
+                    if ($format -lt 0) { return }
+                    if ($format -eq 0) {
+                        $extension = 'ass'
+                        $suffix = ''
+                    }
+                }
+                $destination = Pick-Output $file $extension $suffix
                 if ($destination) { Start-Engine (@('subtitles',$file,$destination,$layout,$depth) + $inputArgs) }
             }
             'Change Aspect or Stereo Layout' {
