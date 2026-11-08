@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.10
+Ted's Video Tool (TVT) 0.8.11
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -231,6 +231,12 @@ Strong and save an MP4. TVT blends the model result into the source,
 preserves deep shadows and boxed areas, and keeps the first audio track.
 Gentle applies the least AI detail. The banner shows the filename and restoration stage. Full exports
 show the current SeedVR2 chunk and total while the model runs.
+TVT asks for confirmation before starting a preview or restoration.
+Cancel is the default. The full-restoration prompt shows the selected
+duration and explains that an hour of video could take roughly a week
+on an M2 Max, based on a real-world test. The load can interrupt other
+work, including Shield3D playback. Use Preview 5 Seconds to judge a
+sample before committing to a long job.
 Long jobs run in batches and can
 take substantial time and temporary disk space. There is no fixed
 duration limit for Restore Selection.

@@ -326,6 +326,12 @@ final class TrimEditor: NSObject {
 
     func restoreSelection(preview: Bool) {
         guard let app = app, end > start else { return }
+        let length = preview ? min(5, end - start) : end - start
+        let warning = preview
+            ? "This preview processes up to five seconds. SeedVR2 can slow down other apps while it runs. The first run may also download the model."
+            : "Selected video time: \(timeText(length)). On an M2 Max, a real-world test suggested that restoring an hour of video could take roughly a week. Actual time varies. AI Restore can heavily load your Mac and interrupt playback in apps such as Shield3D. Use Preview 5 Seconds first if you want to check the result."
+        guard app.alert(preview ? "Run AI Restore Preview?" : "AI Restore Can Take Days", warning,
+                        ["Cancel", preview ? "Run Preview" : "Proceed with Restoration"]) == 1 else { return }
         guard let level = app.chooseOption("AI cleanup strength", ["Gentle", "Balanced", "Strong"],
                                            detail: "Deep shadows and boxed areas keep source detail. Boxes stay fixed across the selected range.") else { return }
         var destination: String?
@@ -336,7 +342,7 @@ final class TrimEditor: NSObject {
         }
         let masks = image.boxes.map { [$0.minX, $0.minY, $0.maxX, $0.maxY].map { app.mediaTime(Double($0)) }.joined(separator: ",") }
         if !preview { finish() }
-        app.runRestore(source, start: start, length: preview ? min(5, end - start) : end - start,
+        app.runRestore(source, start: start, length: length,
                        strength: ["gentle", "balanced", "strong"][level], boxes: masks, destination: destination,
                        editor: preview ? self : nil)
     }
