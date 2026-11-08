@@ -774,11 +774,11 @@ function Choose-Operation($operation) {
                     $inputArgs = @($provider,$title,$language)
                 }
                 $extension = 'mkv'
-                $suffix = 'Subtitled'
+                $suffix = 'English subtitles'
                 if ($choice -gt 0) {
-                    $format = Pick-Index 'Save 3D subtitles' @('Separate ASS file (recommended for VLC)','Embed in a new MKV')
+                    $format = Pick-Index 'Save 3D subtitles' @('Embed in a new MKV','Save a separate ASS file')
                     if ($format -lt 0) { return }
-                    if ($format -eq 0) {
+                    if ($format -eq 1) {
                         $extension = 'ass'
                         $suffix = ''
                     }

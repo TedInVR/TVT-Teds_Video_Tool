@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.14
+Ted's Video Tool (TVT) 0.8.15
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -167,13 +167,16 @@ copies video and compatible subtitle streams without re-encoding them.
 Add Subtitles
 Choose a 2D video or the matching full/half Side-by-Side or Over-Under
 layout (left eye first). Choose a local SRT, ASS, or WebVTT text file,
-or use OpenSubtitles, Subtitle Cat, or SubDL. For 3D, TVT defaults to saving
-a separate ASS file beside the original movie with the same base name.
-Open the movie in VLC. If VLC does not load the ASS automatically, use
-Subtitles > Add Subtitle File and select it. For 2D or when you choose
-Embed in a new MKV for 3D, TVT copies the video and audio and adds a
-selectable subtitle track. The new track starts disabled unless the
-player's subtitle preferences select it.
+or use OpenSubtitles, Subtitle Cat, or SubDL. TVT defaults to embedding
+subtitles as a selectable track in a new MKV with " English subtitles"
+added to the movie name. Edit the suggested name in the Save dialog
+when needed. TVT copies the video and audio. The new track starts
+disabled unless the player's subtitle preferences select it.
+
+For 3D, Save a separate ASS file is also available. This is useful when
+VLC shows a blank embedded track. Save the ASS beside the original
+movie with the same base name. If VLC does not load it automatically,
+use Subtitles > Add Subtitle File and select it.
 Text files are normalized to plain timed text, so original ASS styling
 is not carried forward.
 

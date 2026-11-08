@@ -1128,11 +1128,11 @@ final class TVT: NSObject, NSApplicationDelegate {
         }
         var sidecar = false
         if layout > 0 {
-            guard let format = chooseOption("Save 3D subtitles", ["Separate ASS file (recommended for VLC)", "Embed in a new MKV"],
-                                            detail: "Keep the ASS file next to the movie with the same name before the extension.") else { return }
-            sidecar = format == 0
+            guard let format = chooseOption("Save 3D subtitles", ["Embed in a new MKV", "Save a separate ASS file"],
+                                            detail: "If an embedded track is blank in VLC, try saving a separate ASS file beside the movie.") else { return }
+            sidecar = format == 1
         }
-        let name = source.deletingPathExtension().lastPathComponent + (sidecar ? ".ass" : " Subtitled.mkv")
+        let name = source.deletingPathExtension().lastPathComponent + (sidecar ? ".ass" : " English subtitles.mkv")
         guard let output = save(name, near: source, fileExtension: sidecar ? "ass" : "mkv") else { return }
         export(["subtitles", source.path, output, layouts[layout].1, depth] + input)
     }
