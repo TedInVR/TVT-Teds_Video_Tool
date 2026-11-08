@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.11
+Ted's Video Tool (TVT) 0.8.12
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -167,7 +167,7 @@ copies video and compatible subtitle streams without re-encoding them.
 Add Subtitles
 Choose a 2D video or the matching full/half Side-by-Side or Over-Under
 layout (left eye first). Choose a local SRT, ASS, or WebVTT text file,
-or Search OpenSubtitles. TVT creates an MKV with an additional,
+or search OpenSubtitles or Subtitle Cat. TVT creates an MKV with an additional,
 selectable subtitle track. Video and audio are copied. The added track
 starts disabled unless the player's subtitle preferences select it.
 Text files are normalized to plain timed text, so original ASS styling
@@ -179,6 +179,13 @@ The setting is a fixed offset for the whole film. Play in a player or
 mode that renders positioned ASS over the packed image before splitting
 it for 3D display. A player that overrides ASS placement may display
 the two copies incorrectly. Check a short scene on your usual 3D setup.
+
+Search Subtitle Cat
+Choose Search Subtitle Cat and enter a short film or episode title. TVT
+opens the results in your browser. Pick a matching release, download the
+SRT in your language, then return to TVT and select the downloaded file.
+This route uses no OpenSubtitles key or downloads. Some subtitles may
+be machine translated. Check the translation and timing on your video.
 
 OpenSubtitles setup
 1. Make an account at opensubtitles.com and create a key in your

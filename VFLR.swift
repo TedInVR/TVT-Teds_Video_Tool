@@ -1089,8 +1089,25 @@ final class TVT: NSObject, NSApplicationDelegate {
         let layouts = [("2D", "flat")] + stereoLayouts
         guard let source = sourceFiles("Choose the video that needs subtitles.", multiple: false)?.first,
               let layout = chooseOption("Choose the video layout", layouts.map { $0.0 }),
-              let method = chooseOption("Choose a subtitle source", ["Local subtitle file", "Search OpenSubtitles"],
-                                        detail: "Online search requires OpenSubtitles credentials. See the User Guide.") else { return }
+              let method = chooseOption("Choose a subtitle source", ["Local subtitle file", "Search OpenSubtitles", "Search Subtitle Cat"],
+                                        detail: "OpenSubtitles uses your API key. Subtitle Cat opens in your browser.") else { return }
+        if method == 2 {
+            guard let title = textInput("Search Subtitle Cat by movie or episode title",
+                                        source.deletingPathExtension().lastPathComponent) else { return }
+            var search = URLComponents()
+            search.scheme = "https"
+            search.host = "www.subtitlecat.com"
+            search.path = "/index.php"
+            search.queryItems = [URLQueryItem(name: "d", value: "1"), URLQueryItem(name: "search", value: title)]
+            search.percentEncodedQuery = search.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+            guard let url = search.url, NSWorkspace.shared.open(url) else {
+                alert("Could not open Subtitle Cat", "Check that a default web browser is set.")
+                return
+            }
+            guard alert("Download a subtitle from Subtitle Cat",
+                        "Choose a result and download an SRT in your language. Return to TVT when the file is ready.",
+                        ["Choose Downloaded SRT", "Cancel"]) == 0 else { return }
+        }
         var depth = "0"
         if layout > 0 {
             let levels = [("At the screen", "0"), ("Slightly forward", "0.8"),
@@ -1099,7 +1116,7 @@ final class TVT: NSObject, NSApplicationDelegate {
             depth = levels[level].1
         }
         var input: [String]
-        if method == 0 {
+        if method != 1 {
             guard let captions = files("Choose a text subtitle file, such as SRT, ASS, or WebVTT.", multiple: false)?.first else { return }
             input = ["local", captions.path]
         } else {

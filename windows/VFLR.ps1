@@ -743,15 +743,22 @@ function Choose-Operation($operation) {
                 $choice = Pick-Index 'Choose the video layout' (@('2D') + $layoutLabels)
                 if ($choice -lt 0) { return }
                 $layout = (@('flat') + $layoutCodes)[$choice]
-                $method = Pick-Index 'Choose the subtitle source' @('Local text subtitle','Search OpenSubtitles')
+                $method = Pick-Index 'Choose the subtitle source' @('Local text subtitle','Search OpenSubtitles','Search Subtitle Cat')
                 if ($method -lt 0) { return }
+                if ($method -eq 2) {
+                    $title = Text-Input 'Search Subtitle Cat by movie or episode title' ([IO.Path]::GetFileNameWithoutExtension($file))
+                    if (-not $title) { return }
+                    $url = 'https://www.subtitlecat.com/index.php?d=1&search=' + [Uri]::EscapeDataString($title)
+                    Start-Process -FilePath $url -ErrorAction Stop
+                    if ([Windows.Forms.MessageBox]::Show($form, 'Download an SRT in your browser, then return to TVT and click OK to select it.', 'Subtitle Cat', 'OKCancel') -ne 'OK') { return }
+                }
                 $depth = '0'
                 if ($choice -gt 0) {
                     $level = Pick-Index '3D subtitle depth' @('At the screen','Slightly forward','More forward','Most forward') 1
                     if ($level -lt 0) { return }
                     $depth = @('0','0.8','1.5','2.5')[$level]
                 }
-                if ($method -eq 0) {
+                if ($method -ne 1) {
                     $caption = @(Pick-Files $false)
                     if (-not $caption.Count) { return }
                     $inputArgs = @('local',$caption[0])
