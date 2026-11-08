@@ -1,4 +1,5 @@
 """Create packed-frame ASS tracks and retrieve SRTs through OpenSubtitles."""
+import io
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import textwrap
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
+from zipfile import BadZipFile, ZipFile
 
 API = "https://api.opensubtitles.com/api/v1"
 AGENT = "VFLR v0.5.0"
@@ -134,6 +136,55 @@ def download_subtitle(source, output, title, language):
     Path(output).write_bytes(data)
 
 
+def download_subdl(output, title, language):
+    config_path = Path(os.environ["TVT_SUBDL_CONFIG"])
+    if not config_path.is_file():
+        raise ValueError(f"Set up your free SubDL API key as described in the User Guide: {config_path}")
+    key = json.loads(config_path.read_text(encoding="utf-8-sig")).get("api_key")
+    if not isinstance(key, str) or not key.strip():
+        raise ValueError("Add api_key to the SubDL configuration.")
+    if not re.fullmatch(r"[a-zA-Z]{2,3}(?:-[a-zA-Z]{2,4})?", language):
+        raise ValueError("Enter a SubDL language code such as EN, ES, or PT-BR.")
+
+    query = {"api_key": key.strip(), "languages": language.upper(),
+             "client": "custom_integration", "full_season": 0}
+    episode = re.search(r"\s+S(\d+)E(\d+)$", title, re.I)
+    year = re.search(r"\s+\(?(19\d{2}|20\d{2})\)?$", title)
+    if episode:
+        query.update(type="tv", season_number=int(episode[1]), episode_number=int(episode[2]))
+        title = title[:episode.start()].strip()
+    elif year:
+        query.update(type="movie", year=year[1])
+        title = title[:year.start()].strip()
+    query["imdb_id" if re.fullmatch(r"tt\d+", title) else "film_name"] = title
+    headers = {"User-Agent": "TedVideoTool/0.8.14", "Accept": "application/json"}
+    request = Request("https://api.subdl.com/api/v1/subtitles?" + urlencode(query), headers=headers)
+    with urlopen(request, timeout=25) as response:
+        results = json.load(response)
+    if results.get("status") is not True:
+        raise ValueError("SubDL could not complete the search. Check your key and search terms.")
+    path = next((row["url"] for row in results.get("subtitles", [])
+                 if re.fullmatch(r"/subtitle/[a-zA-Z0-9_-]+\.zip", row.get("url") or "")), None)
+    if not path:
+        raise ValueError("SubDL found no matching subtitle. Try the original title, IMDb ID, or a local subtitle file.")
+
+    limit = 4_000_000
+    with urlopen("https://dl.subdl.com" + path, timeout=25) as response:
+        archive = response.read(limit + 1)
+    if len(archive) > limit:
+        raise ValueError("The SubDL archive is too large. Download the matching SRT manually.")
+    with ZipFile(io.BytesIO(archive)) as bundle:
+        files = [item for item in bundle.infolist()
+                 if item.filename.lower().endswith(".srt") and not item.is_dir()
+                 and not item.filename.startswith("__MACOSX/")]
+        if len(files) != 1 or files[0].file_size > limit or files[0].flag_bits & 1:
+            raise ValueError("The SubDL archive does not contain one usable SRT. Download and select the matching subtitle manually.")
+        data = bundle.read(files[0])
+    if b"-->" not in data:
+        raise ValueError("The downloaded SubDL file does not contain usable SRT cues.")
+    Path(output).write_bytes(data)
+
+
 if __name__ == "__main__":
     try:
         mode, *args = sys.argv[1:]
@@ -142,11 +193,14 @@ if __name__ == "__main__":
             stereo_ass(source, output, layout, int(width), int(height), float(depth))
         elif mode == "online":
             download_subtitle(*args)
+        elif mode == "subdl":
+            download_subdl(*args)
         else:
             raise ValueError("Unknown subtitle operation.")
     except HTTPError as exc:
-        print(f"OpenSubtitles returned HTTP {exc.code}. Check your API credentials or download quota.", file=sys.stderr)
+        provider = "SubDL" if mode == "subdl" else "OpenSubtitles"
+        print(f"{provider} returned HTTP {exc.code}. Check your API credentials or download quota.", file=sys.stderr)
         sys.exit(1)
-    except (ValueError, OSError, KeyError) as exc:
+    except (ValueError, OSError, KeyError, BadZipFile) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)

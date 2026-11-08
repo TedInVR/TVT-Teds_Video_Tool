@@ -247,9 +247,10 @@ function New-EngineProcess([string[]]$arguments) {
             if ($arguments[0] -eq 'download') {
                 $info.EnvironmentVariables['VFLR_YTDLP'] = (Find-Tool 'yt-dlp.exe').Replace('\','/')
             }
-            if ($arguments[0] -eq 'subtitles' -and ($arguments[3] -ne 'flat' -or $arguments[5] -eq 'online')) {
+            if ($arguments[0] -eq 'subtitles' -and ($arguments[3] -ne 'flat' -or $arguments[5] -ne 'local')) {
                 $info.EnvironmentVariables['VFLR_PYTHON'] = (Find-Tool 'python.exe').Replace('\','/')
                 $info.EnvironmentVariables['VFLR_SUBTITLE_CONFIG'] = Join-Path (Split-Path $root) 'OpenSubtitles.json'
+                $info.EnvironmentVariables['TVT_SUBDL_CONFIG'] = Join-Path (Split-Path $root) 'SubDL.json'
             }
         }
         $scriptFile = (Join-Path $PSScriptRoot 'engine-windows.sh').Replace('\','/')
@@ -744,7 +745,7 @@ function Choose-Operation($operation) {
                 $choice = Pick-Index 'Choose the video layout' (@('2D') + $layoutLabels)
                 if ($choice -lt 0) { return }
                 $layout = (@('flat') + $layoutCodes)[$choice]
-                $method = Pick-Index 'Choose the subtitle source' @('Local text subtitle','Search OpenSubtitles','Search Subtitle Cat')
+                $method = Pick-Index 'Choose the subtitle source' @('Local text subtitle','Search OpenSubtitles','Search Subtitle Cat','Download from SubDL')
                 if ($method -lt 0) { return }
                 if ($method -eq 2) {
                     $title = Text-Input 'Search Subtitle Cat by movie or episode title' ([IO.Path]::GetFileNameWithoutExtension($file))
@@ -759,16 +760,18 @@ function Choose-Operation($operation) {
                     if ($level -lt 0) { return }
                     $depth = @('0','0.8','1.5','2.5')[$level]
                 }
-                if ($method -ne 1) {
+                if ($method -eq 0 -or $method -eq 2) {
                     $caption = @(Pick-Files $false)
                     if (-not $caption.Count) { return }
                     $inputArgs = @('local',$caption[0])
                 } else {
-                    $title = Text-Input 'Movie title and year, or show title and S01E01' ([IO.Path]::GetFileNameWithoutExtension($file))
+                    $prompt = if ($method -eq 3) { 'Movie title and year, IMDb ID, or show title and S01E01' } else { 'Movie title and year, or show title and S01E01' }
+                    $title = Text-Input $prompt ([IO.Path]::GetFileNameWithoutExtension($file))
                     if (-not $title) { return }
                     $language = Text-Input 'Subtitle language code' 'en'
                     if (-not $language) { return }
-                    $inputArgs = @('online',$title,$language)
+                    $provider = if ($method -eq 3) { 'subdl' } else { 'online' }
+                    $inputArgs = @($provider,$title,$language)
                 }
                 $extension = 'mkv'
                 $suffix = 'Subtitled'

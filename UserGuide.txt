@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.13
+Ted's Video Tool (TVT) 0.8.14
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -167,7 +167,7 @@ copies video and compatible subtitle streams without re-encoding them.
 Add Subtitles
 Choose a 2D video or the matching full/half Side-by-Side or Over-Under
 layout (left eye first). Choose a local SRT, ASS, or WebVTT text file,
-or search OpenSubtitles or Subtitle Cat. For 3D, TVT defaults to saving
+or use OpenSubtitles, Subtitle Cat, or SubDL. For 3D, TVT defaults to saving
 a separate ASS file beside the original movie with the same base name.
 Open the movie in VLC. If VLC does not load the ASS automatically, use
 Subtitles > Add Subtitle File and select it. For 2D or when you choose
@@ -190,6 +190,19 @@ opens the results in your browser. Pick a matching release, download the
 SRT in your language, then return to TVT and select the downloaded file.
 This route uses no OpenSubtitles key or downloads. Some subtitles may
 be machine translated. Check the translation and timing on your video.
+
+Download from SubDL
+1. Create a free API key in your SubDL account panel. The key is separate
+   from your OpenSubtitles key.
+2. Save SubDL.json as plain text containing {"api_key":"YOUR_SUBDL_KEY"}.
+   Mac location: /Applications/VFLR Development/SubDL.json
+   Windows location: %LOCALAPPDATA%\Programs\VFLR\SubDL.json
+3. Choose Download from SubDL, then enter a short movie title and year,
+   an IMDb ID such as tt2124046, or a show title followed by S01E01.
+   Use EN for English. TVT downloads the first matching release archive
+   and uses its SRT. Check timing against your video. If an archive has
+   multiple SRTs, download it in your browser and choose the right file
+   through Local subtitle file. Python 3 is required.
 
 OpenSubtitles setup
 1. Make an account at opensubtitles.com and create a key in your

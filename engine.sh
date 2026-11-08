@@ -223,6 +223,11 @@ elif [[ "$mode" == subtitles ]]; then
             export VFLR_SUBTITLE_CONFIG=${VFLR_SUBTITLE_CONFIG:-'/Applications/VFLR Development/OpenSubtitles.json'}
             run_subtitles online "$(native_file "$source_file")" "$(native_file "$captions")" "$6" "$7"
             ;;
+        subdl)
+            captions="$work_dir/subdl.srt"
+            export TVT_SUBDL_CONFIG=${TVT_SUBDL_CONFIG:-'/Applications/VFLR Development/SubDL.json'}
+            run_subtitles subdl "$(native_file "$captions")" "$6" "$7"
+            ;;
         *) exit 1 ;;
     esac
     run_ffmpeg -n -i "$captions" -map 0:s:0 -c:s srt "$work_dir/captions.srt"
