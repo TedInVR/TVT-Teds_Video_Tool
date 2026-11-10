@@ -1,5 +1,6 @@
-Ted's Video Tool (TVT) 0.8.23
+Ted's Video Tool (TVT) 0.8.24
 
+The main window shows the TVT mark beside the app name and its format subtitle.
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
 On Mac, the first installation builds TVT.app in Applications. It requires Apple

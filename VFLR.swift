@@ -440,9 +440,16 @@ final class TVT: NSObject, NSApplicationDelegate {
         badge.widthAnchor.constraint(equalToConstant: 46).isActive = true
         badge.heightAnchor.constraint(equalToConstant: 46).isActive = true
 
-        let title = NSTextField(labelWithString: "Ted's Video Tool for 2D, 3D and VR")
+        let title = NSTextField(labelWithString: "Ted's Video Tool")
         title.font = .systemFont(ofSize: 22, weight: .semibold)
-        let header = NSStackView(views: [badge, title])
+        let subtitle = NSTextField(labelWithString: "for 2D, 3D, and VR")
+        subtitle.font = .systemFont(ofSize: 12)
+        subtitle.textColor = .secondaryLabelColor
+        let heading = NSStackView(views: [title, subtitle])
+        heading.orientation = .vertical
+        heading.alignment = .leading
+        heading.spacing = 1
+        let header = NSStackView(views: [badge, heading])
         header.spacing = 12
         header.alignment = .centerY
         stack.addArrangedSubview(header)

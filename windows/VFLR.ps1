@@ -27,11 +27,18 @@ $badge.AccessibleName = 'TVT'
 $badge.SetBounds(18, 28, 46, 46)
 $form.Controls.Add($badge)
 $heading = New-Object Windows.Forms.Label
-$heading.Text = "Ted's Video Tool for 2D, 3D and VR"
+$heading.Text = "Ted's Video Tool"
 $heading.Font = New-Object Drawing.Font('Segoe UI', 16, [Drawing.FontStyle]::Bold)
 $heading.TextAlign = 'MiddleLeft'
-$heading.SetBounds(76, 32, 536, 38)
+$heading.SetBounds(76, 26, 536, 29)
 $form.Controls.Add($heading)
+$subtitle = New-Object Windows.Forms.Label
+$subtitle.Text = 'for 2D, 3D, and VR'
+$subtitle.Font = New-Object Drawing.Font('Segoe UI', 9)
+$subtitle.ForeColor = [Drawing.SystemColors]::GrayText
+$subtitle.TextAlign = 'MiddleLeft'
+$subtitle.SetBounds(76, 55, 536, 20)
+$form.Controls.Add($subtitle)
 $tooltip = New-Object Windows.Forms.ToolTip
 $sourcesLabel = New-Object Windows.Forms.Label
 $sourcesLabel.SetBounds(18, 91, 420, 25)
