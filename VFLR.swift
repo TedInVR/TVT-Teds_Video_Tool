@@ -439,7 +439,10 @@ final class TVT: NSObject, NSApplicationDelegate {
         ])
 
         let badge = NSImageView()
-        badge.image = NSImage(contentsOf: resources.appendingPathComponent("TVT.png"))
+        if let logo = NSImage(contentsOf: resources.appendingPathComponent("TVT.png")) {
+            badge.image = logo
+            NSApp.applicationIconImage = logo
+        }
         badge.imageScaling = .scaleProportionallyUpOrDown
         badge.setAccessibilityLabel("TVT")
         badge.widthAnchor.constraint(equalToConstant: 46).isActive = true
