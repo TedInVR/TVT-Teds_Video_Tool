@@ -823,14 +823,20 @@ function Choose-Operation($operation) {
                 if ($choice -ge 0) { Start-Engine @('info',@('summary','full','json')[$choice],$file) ([IO.Path]::GetFileName($file)) }
             }
             'Extract or Remove Audio' {
-                $choice = Pick-Index 'Extract or Remove Audio' @('Keep selected audio tracks (MKV)','MP3','M4A','FLAC','WAV','Remove audio (MKV)')
+                $choice = Pick-Index 'Extract or Remove Audio' @('Keep English Audio Only (MKV)','Keep selected audio tracks (MKV)','MP3','M4A','FLAC','WAV','Remove audio (MKV)')
                 if ($choice -lt 0) { return }
                 if ($choice -eq 0) {
+                    if ($files.Count -gt 1) { Start-Batch 'audio' 'english' $files; return }
+                    $destination = Pick-Output $file 'mkv' 'English Audio'
+                    if ($destination) { Start-Engine @('audio','english',$file,$destination) }
+                    return
+                }
+                if ($choice -eq 1) {
                     if ($files.Count -ne 1) { Notice 'Choose one video' 'Audio track selection is specific to each video.'; return }
                     Start-Engine @('audio-tracks',$file) -audioSource $file
                     return
                 }
-                $choice--
+                $choice -= 2
                 $format = @('mp3','m4a','flac','wav','silent')[$choice]
                 if ($files.Count -gt 1) { Start-Batch 'audio' $format $files; return }
                 $extension = @('mp3','m4a','flac','wav','mkv')[$choice]

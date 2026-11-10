@@ -47,6 +47,7 @@ if [[ "$mode" == batch-item ]]; then
         audio:mp3|audio:m4a|audio:flac|audio:wav)
             suffix=Audio; extension=$setting ;;
         audio:silent) suffix=Silent; extension=mkv ;;
+        audio:english) suffix="English Audio"; extension=mkv ;;
         *) echo 'Unsupported batch setting.' >&2; exit 1 ;;
     esac
     name=$(basename "$source")
@@ -204,6 +205,15 @@ elif [[ "$mode" == audio ]]; then
     format=$1
     source_file=$2
     destination=$3
+    if [[ "$format" == english ]]; then
+        languages=$("$FFPROBE" -v error -select_streams a -show_entries stream=index:stream_tags=language -of csv=p=0 "$source_file")
+        selection=$(awk -F, 'tolower($2) ~ /^(eng|en)([-_][a-z0-9]+)*$/ { printf "%s%d", sep, NR-1; sep="," }' <<< "$languages")
+        if [[ -z "$selection" ]]; then
+            echo 'No audio tracks are tagged English. Use Keep selected audio tracks to choose a track manually.' >&2
+            exit 1
+        fi
+        format="keep:$selection"
+    fi
     stage_output "$destination"
     case "$format" in
         mp3) options=(-map 0:a:0 -vn -c:a libmp3lame -q:a 2) ;;

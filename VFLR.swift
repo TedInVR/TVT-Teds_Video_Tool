@@ -388,6 +388,11 @@ final class TVT: NSObject, NSApplicationDelegate {
         menu.addItem(app)
         app.submenu = NSMenu(title: "Ted's Video Tool")
         app.submenu?.addItem(withTitle: "About Ted's Video Tool", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        if let item = app.submenu?.addItem(withTitle: "Replace Videos and Move Originals to Trash",
+                                           action: #selector(toggleVideoReplacement(_:)), keyEquivalent: "") {
+            item.target = self
+            item.state = replacesVideos ? .on : .off
+        }
         app.submenu?.addItem(.separator())
         app.submenu?.addItem(withTitle: "Quit Ted's Video Tool", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
@@ -632,6 +637,98 @@ final class TVT: NSObject, NSApplicationDelegate {
         return panel.runModal() == .OK ? panel.url?.path : nil
     }
 
+    var replacesVideos: Bool {
+        UserDefaults.standard.object(forKey: "ReplaceVideos") as? Bool ?? true
+    }
+
+    @objc func toggleVideoReplacement(_ item: NSMenuItem) {
+        let enabled = !replacesVideos
+        UserDefaults.standard.set(enabled, forKey: "ReplaceVideos")
+        item.state = enabled ? .on : .off
+    }
+
+    struct VideoReplacement {
+        let source: URL
+        let original: NSDictionary
+
+        init(_ source: URL) throws {
+            self.source = source
+            original = try Self.identity(source)
+        }
+
+        private static func identity(_ url: URL) throws -> NSDictionary {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard attributes[.type] as? FileAttributeType == .typeRegular,
+                  let file = attributes[.systemFileNumber], let device = attributes[.systemNumber],
+                  let size = attributes[.size], let modified = attributes[.modificationDate] else {
+                throw NSError(domain: "TVT", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Only regular files can be replaced."
+                ])
+            }
+            return ["file": file, "device": device, "size": size, "modified": modified]
+        }
+
+        func install(_ output: URL) throws -> URL {
+            let manager = FileManager.default
+            let sameExtension = source.pathExtension.caseInsensitiveCompare(output.pathExtension) == .orderedSame
+            let final = sameExtension ? source : source.deletingPathExtension().appendingPathExtension(output.pathExtension)
+            let outputAttributes = try manager.attributesOfItem(atPath: output.path)
+            guard try Self.identity(source).isEqual(original), output != source,
+                  outputAttributes[.type] as? FileAttributeType == .typeRegular,
+                  let size = outputAttributes[.size] as? NSNumber,
+                  size.int64Value > 0 else {
+                throw NSError(domain: "TVT", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "The source changed during processing or the new file is empty."
+                ])
+            }
+            if !sameExtension {
+                // Publish the new extension before touching the original. A name collision fails here.
+                try manager.moveItem(at: output, to: final)
+                do { try manager.trashItem(at: source, resultingItemURL: nil) }
+                catch {
+                    if (try? manager.moveItem(at: final, to: output)) == nil {
+                        throw NSError(domain: "TVT", code: 3, userInfo: [
+                            NSLocalizedDescriptionKey: "The original could not be moved to Trash. The new file is at \(final.path)."
+                        ])
+                    }
+                    throw error
+                }
+                return final
+            }
+            var trashed: NSURL?
+            try manager.trashItem(at: source, resultingItemURL: &trashed)
+            do { try manager.moveItem(at: output, to: final) }
+            catch {
+                if let trashed = trashed { try? manager.moveItem(at: trashed as URL, to: source) }
+                throw error
+            }
+            return final
+        }
+    }
+
+    func exportVideo(_ arguments: [String], source: URL, name: String, fileExtension ext: String,
+                     outputIndex: Int? = nil) {
+        let replacement: VideoReplacement?
+        let output: String
+        if replacesVideos {
+            do { replacement = try VideoReplacement(source) }
+            catch {
+                alert("Could not prepare video replacement", error.localizedDescription)
+                return
+            }
+            output = source.deletingLastPathComponent()
+                .appendingPathComponent("TVT Pending " + UUID().uuidString)
+                .appendingPathExtension(ext).path
+        } else {
+            replacement = nil
+            guard let path = save(name, near: source, fileExtension: ext) else { return }
+            output = path
+        }
+        var job = arguments
+        job.insert(output, at: outputIndex ?? job.count)
+        export(job, replacement: replacement)
+    }
+
     func execute(_ script: URL, _ arguments: [String], progressFile: URL? = nil, done: @escaping (Bool, String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
@@ -731,7 +828,7 @@ final class TVT: NSObject, NSApplicationDelegate {
         }
     }
 
-    func export(_ arguments: [String]) {
+    func export(_ arguments: [String], replacement: VideoReplacement? = nil) {
         guard !processing, !queued else { return }
         let messages = ["split": "Splitting movie", "join": "Joining parts", "link": "Linking videos",
                         "upscale": "Upscaling video", "convert": "Converting video", "download": "Downloading media",
@@ -749,8 +846,23 @@ final class TVT: NSObject, NSApplicationDelegate {
             let finished = success && !output.isEmpty
             self.endProcessing(finished ? "Finished. Your result is ready." : "Processing failed.", success: finished)
             if finished {
-                self.result = URL(fileURLWithPath: output)
-                self.revealButton.isHidden = false
+                let rendered = URL(fileURLWithPath: output)
+                do {
+                    self.result = try replacement?.install(rendered) ?? rendered
+                    if let replacement = replacement, self.sources.contains(replacement.source) {
+                        let updated = self.sources.map { $0 == replacement.source ? self.result ?? rendered : $0 }
+                        self.loadSources(updated)
+                    }
+                    self.revealButton.isHidden = false
+                } catch {
+                    self.endProcessing("Video saved. Replacement could not finish.", success: false)
+                    if FileManager.default.fileExists(atPath: rendered.path) {
+                        self.result = rendered
+                        self.revealButton.isHidden = false
+                    }
+                    self.alert("Could not replace the original",
+                               error.localizedDescription + "\n\nCheck the output folder and Trash. Pending output: " + rendered.path)
+                }
             } else {
                 self.alert("Processing failed", output.isEmpty ? "No result was created." : String(output.suffix(4000)))
             }
@@ -777,24 +889,35 @@ final class TVT: NSObject, NSApplicationDelegate {
 
     func batchExport(_ operation: String, setting: String, videos: [URL]) {
         guard !processing, !queued else { return }
-        let panel = NSOpenPanel()
-        panel.message = "Choose one folder for all \(videos.count) outputs."
-        panel.prompt = "Start Batch"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = videos[0].deletingLastPathComponent()
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        let replace = replacesVideos && (operation != "audio" || ["silent", "english"].contains(setting))
+        let folder: URL
+        if replace {
+            folder = videos[0].deletingLastPathComponent()
+        } else {
+            let panel = NSOpenPanel()
+            panel.message = "Choose one folder for all \(videos.count) outputs."
+            panel.prompt = "Start Batch"
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.directoryURL = videos[0].deletingLastPathComponent()
+            guard panel.runModal() == .OK, let selected = panel.url else { return }
+            folder = selected
+        }
         let script = resources.appendingPathComponent("engine.sh")
         var failures: [String] = []
+        var installed: [URL: URL] = [:]
         beginProcessing("Preparing batch…")
 
         func next(_ index: Int) {
             if index == videos.count {
                 let completed = videos.count - failures.count
                 self.endProcessing("Batch finished. \(completed) of \(videos.count) completed.", success: failures.isEmpty)
+                if !installed.isEmpty, !self.sources.isEmpty {
+                    self.loadSources(self.sources.map { installed[$0] ?? $0 })
+                }
                 if completed > 0 {
-                    self.result = folder
+                    self.result = videos.compactMap { installed[$0] }.first?.deletingLastPathComponent() ?? folder
                     self.revealButton.isHidden = false
                 }
                 if !failures.isEmpty {
@@ -805,9 +928,20 @@ final class TVT: NSObject, NSApplicationDelegate {
             }
             let video = videos[index]
             let label = "Video \(index + 1) of \(videos.count) · \(video.lastPathComponent)"
-            self.executeWithProgress(script, ["batch-item", operation, setting, video.path, folder.path], label: label) { success, output in
+            let replacement: VideoReplacement?
+            do { replacement = replace ? try VideoReplacement(video) : nil }
+            catch {
+                failures.append(video.lastPathComponent + ": " + error.localizedDescription)
+                DispatchQueue.main.async { next(index + 1) }
+                return
+            }
+            let directory = replace ? video.deletingLastPathComponent() : folder
+            self.executeWithProgress(script, ["batch-item", operation, setting, video.path, directory.path], label: label) { success, output in
                 if !success || output.isEmpty {
                     failures.append(video.lastPathComponent + ": " + String(output.suffix(350)))
+                } else if let replacement = replacement {
+                    do { installed[video] = try replacement.install(URL(fileURLWithPath: output)) }
+                    catch { failures.append(video.lastPathComponent + ": " + error.localizedDescription + "\nOutput: " + output) }
                 }
                 next(index + 1)
             }
@@ -1069,8 +1203,7 @@ final class TVT: NSObject, NSApplicationDelegate {
         if videos.count > 1 { batchExport("upscale", setting: target, videos: videos); return }
         let source = videos[0]
         let name = source.deletingPathExtension().lastPathComponent + (choice == 0 ? " 1080p.mp4" : " 4K.mp4")
-        guard let output = save(name, near: source) else { return }
-        export(["upscale", target, source.path, output])
+        exportVideo(["upscale", target, source.path], source: source, name: name, fileExtension: "mp4")
     }
 
     let stereoLayouts = [("Full Side-by-Side", "sbsl"), ("Half Side-by-Side", "sbs2l"),
@@ -1113,12 +1246,13 @@ final class TVT: NSObject, NSApplicationDelegate {
     }
 
     @objc func audioTools() {
-        let options = [("Keep selected audio tracks (MKV)", "keep"),
+        let options = [("Keep English Audio Only (MKV)", "english"),
+                       ("Keep selected audio tracks (MKV)", "keep"),
                        ("MP3 audio", "mp3"), ("M4A audio", "m4a"), ("FLAC audio", "flac"),
                        ("WAV audio", "wav"), ("Remove audio (MKV)", "silent")]
         guard let videos = batchSources(),
               let choice = chooseOption("Extract or Remove Audio", options.map { $0.0 },
-                                        detail: "Audio extraction uses the first audio track.") else { return }
+                                        detail: "English Only uses the language tags. Choose selected tracks if the tags are missing or incorrect. Audio extraction uses the first track.") else { return }
         let format = options[choice].1
         if format == "keep" {
             guard videos.count == 1 else {
@@ -1130,8 +1264,14 @@ final class TVT: NSObject, NSApplicationDelegate {
         }
         if videos.count > 1 { batchExport("audio", setting: format, videos: videos); return }
         let source = videos[0]
-        let ext = format == "silent" ? "mkv" : format
-        let name = source.deletingPathExtension().lastPathComponent + (format == "silent" ? " Silent." : " Audio.") + ext
+        if format == "english" || format == "silent" {
+            let suffix = format == "english" ? " English Audio.mkv" : " Silent.mkv"
+            exportVideo(["audio", format, source.path], source: source,
+                        name: source.deletingPathExtension().lastPathComponent + suffix, fileExtension: "mkv")
+            return
+        }
+        let ext = format
+        let name = source.deletingPathExtension().lastPathComponent + " Audio." + ext
         guard let output = save(name, near: source, fileExtension: ext) else { return }
         export(["audio", format, source.path, output])
     }
@@ -1190,8 +1330,8 @@ final class TVT: NSObject, NSApplicationDelegate {
                     continue
                 }
                 let name = source.deletingPathExtension().lastPathComponent + " Selected Audio.mkv"
-                guard let output = self.save(name, near: source, fileExtension: "mkv") else { return }
-                self.export(["audio", "keep:" + selected.map { String($0) }.joined(separator: ","), source.path, output])
+                self.exportVideo(["audio", "keep:" + selected.map { String($0) }.joined(separator: ","), source.path],
+                                 source: source, name: name, fileExtension: "mkv")
                 return
             }
         }
@@ -1245,8 +1385,13 @@ final class TVT: NSObject, NSApplicationDelegate {
             sidecar = format == 1
         }
         let name = source.deletingPathExtension().lastPathComponent + (sidecar ? ".ass" : " English subtitles.mkv")
-        guard let output = save(name, near: source, fileExtension: sidecar ? "ass" : "mkv") else { return }
-        export(["subtitles", source.path, output, layouts[layout].1, depth] + input)
+        if sidecar {
+            guard let output = save(name, near: source, fileExtension: "ass") else { return }
+            export(["subtitles", source.path, output, layouts[layout].1, depth] + input)
+        } else {
+            exportVideo(["subtitles", source.path, layouts[layout].1, depth] + input,
+                        source: source, name: name, fileExtension: "mkv", outputIndex: 2)
+        }
     }
 
     @objc func changeLayout() {
@@ -1268,8 +1413,7 @@ final class TVT: NSObject, NSApplicationDelegate {
             if input == output { return }
         }
         let name = source.deletingPathExtension().lastPathComponent + " Reframed.mkv"
-        guard let path = save(name, near: source, fileExtension: "mkv") else { return }
-        export(["layout", input, output, source.path, path])
+        exportVideo(["layout", input, output, source.path], source: source, name: name, fileExtension: "mkv")
     }
 
     func conversionProfiles() -> [[String]] {
@@ -1306,8 +1450,7 @@ final class TVT: NSObject, NSApplicationDelegate {
         if videos.count > 1 { batchExport("convert", setting: format, videos: videos); return }
         let source = videos[0]
         let name = source.deletingPathExtension().lastPathComponent + " Converted." + format
-        guard let output = save(name, near: source, fileExtension: format) else { return }
-        export(["convert", format, source.path, output])
+        exportVideo(["convert", format, source.path], source: source, name: name, fileExtension: format)
     }
 
     @objc func inspectMedia() {

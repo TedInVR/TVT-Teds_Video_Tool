@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.25
+Ted's Video Tool (TVT) 0.8.26
 
 The main window shows the TVT mark beside the app name and its format subtitle.
 Install and update
@@ -172,14 +172,30 @@ sign-in-only videos may be unavailable. Download material you have
 permission to save. Install yt-dlp and Deno using the GitHub README.
 Choose the save location for every download.
 
+Replacing videos on Mac
+By default, Upscale Video, Convert Video (regular video files), Change
+Aspect or Stereo Layout, embedded subtitles, and keeping or removing
+audio replace the source video. TVT finishes the new file before moving
+the original to Trash. The replacement stays beside the original, with
+the same name and an updated extension if you changed the format.
+Turn off Ted's Video Tool > Replace Videos and Move Originals to Trash
+to save separate copies. Clip exports, AI Restore, split and merge
+operations, disc imports, downloads, extracted audio, and subtitle
+sidecars save separately. Windows continues to save separate copies.
+
 Extract or Remove Audio
+Choose Keep English Audio Only (MKV) to keep all audio tracks tagged
+English. For a batch, TVT checks each video separately and reports
+files without English-tagged audio as skipped. For missing or incorrect
+language tags, use the manual track picker.
+
 Choose Keep selected audio tracks (MKV) for one video at a time.
 TVT checks English-tagged tracks by default. Review the track titles,
 language tags, codecs, and channel counts, and check any other tracks
 you want to keep. The new MKV copies the video, selected audio, and
 compatible subtitles and attachments without re-encoding. It also
 keeps chapters and uses the first retained audio track as the default.
-The source file stays intact.
+The source is handled according to the replacement preference above.
 
 Choose MP3, M4A, FLAC, or WAV to export the first audio track as a
 separate file. Choose Remove audio to create a silent MKV. That option
@@ -189,9 +205,9 @@ Add Subtitles
 Choose a 2D video or the matching full/half Side-by-Side or Over-Under
 layout (left eye first). Choose a local SRT, ASS, or WebVTT text file,
 or use OpenSubtitles, Subtitle Cat, or SubDL. TVT defaults to embedding
-subtitles as a selectable track in a new MKV with " English subtitles"
-added to the movie name. Edit the suggested name in the Save dialog
-when needed. TVT copies the video and audio. The new track starts
+subtitles as a selectable track in an MKV. With separate-copy saving,
+the suggested name ends in " English subtitles" and can be edited.
+TVT copies the video and audio. The new track starts
 disabled unless the player's subtitle preferences select it.
 
 For 3D, Save a separate ASS file is also available. This is useful when
