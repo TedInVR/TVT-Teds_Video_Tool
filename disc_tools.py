@@ -141,9 +141,10 @@ def bind_mount(source, target, readonly=False):
 
 def convert_mvc(command, container, source, result, work):
     if container:
-        run(command + ["--mount", bind_mount(source, "/input.mkv", readonly=True),
+        input_path = "/input" + source.suffix.lower()
+        run(command + ["--mount", bind_mount(source, input_path, readonly=True),
                        "--mount", bind_mount(work, "/work"), MVC_IMAGE,
-                       "--input", "/input.mkv", "--output", "/work/" + result.name,
+                       "--input", input_path, "--output", "/work/" + result.name,
                        "--layout", "full", "--temp", "/work"])
     else:
         run(command + ["--input", str(source), "--output", str(result),
@@ -153,6 +154,11 @@ def convert_mvc(command, container, source, result, work):
 def import_title(source, title, mode, destination):
     if destination.suffix.lower() != ".mkv" or destination.exists() or destination.is_symlink():
         raise ValueError("Choose a new MKV output filename.")
+    direct_iso = mode == "mvc-iso"
+    if direct_iso:
+        if not source.is_file() or source.suffix.lower() != ".iso":
+            raise ValueError("Choose a Blu-ray 3D ISO for direct conversion.")
+        mode = "mvc"
     if mode not in ("original", "mvc", "ou", "half-ou", "sbs", "half-sbs"):
         raise ValueError("Choose a supported output layout.")
     existing_mvc = mode == "mvc" and source.is_file() and source.suffix.lower() == ".mkv"
@@ -165,7 +171,7 @@ def import_title(source, title, mode, destination):
     with tempfile.TemporaryDirectory(prefix=".tvt-disc-", dir=destination.parent) as folder:
         work = Path(folder)
         rip = source
-        if not existing_mvc:
+        if not (existing_mvc or direct_iso):
             profile = work / "TVT.mmcp.xml"
             profile.write_text(PROFILE, encoding="utf-8")
             output = run([makemkv(), "-r", "--noscan", "--minlength=0", "--profile=" + str(profile),

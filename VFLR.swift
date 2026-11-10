@@ -937,6 +937,18 @@ final class TVT: NSObject, NSApplicationDelegate {
             runDiscImport(script, source: source, title: 0, mode: "mvc", destination: destination)
             return
         }
+        if source.pathExtension.lowercased() == "iso" {
+            guard let choice = chooseOption("Import Blu-ray ISO",
+                ["Convert 3D feature directly to Full Side-by-Side", "Scan disc and choose a title"],
+                detail: "Direct conversion automatically picks the longest 3D playlist. Scan the disc to choose an alternate title or keep the original format.",
+                selected: 1) else { return }
+            if choice == 0 {
+                let name = source.deletingPathExtension().lastPathComponent + " Full SBS.mkv"
+                guard let destination = save(name, near: source, fileExtension: "mkv") else { return }
+                runDiscImport(script, source: source, title: 0, mode: "mvc-iso", destination: destination)
+                return
+            }
+        }
         beginProcessing("Scanning disc backup… Please wait.")
         execute(script, ["disc-scan", source.path]) { success, output in
             guard success, let titles = try? JSONDecoder().decode([DiscTitle].self, from: Data(output.utf8)), !titles.isEmpty else {
@@ -969,7 +981,7 @@ final class TVT: NSObject, NSApplicationDelegate {
     }
 
     func runDiscImport(_ script: URL, source: URL, title: Int, mode: String, destination: String) {
-        beginProcessing(mode == "mvc" ? "Converting Blu-ray 3D to Full Side-by-Side…" : "Importing disc title… Please wait.")
+        beginProcessing((mode == "mvc" || mode == "mvc-iso") ? "Converting Blu-ray 3D to Full Side-by-Side…" : "Importing disc title… Please wait.")
         execute(script, ["disc-import", source.path, String(title), mode, destination]) { imported, detail in
             self.endProcessing(imported ? "Finished. Your disc title is ready." : "Disc import failed.", success: imported)
             if imported {

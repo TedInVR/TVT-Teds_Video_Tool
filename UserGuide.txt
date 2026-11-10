@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.18
+Ted's Video Tool (TVT) 0.8.19
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -74,6 +74,13 @@ instead. Otherwise TVT runs the upstream converter image from
 ghcr.io/brunoga/mvc2sbs. The first run can download the image. TVT
 checks the converter before extracting a disc title. On Mac, TVT
 includes Docker Desktop’s helper directory when launching Docker.
+
+For a readable Blu-ray 3D ISO, choose Convert 3D feature directly to
+Full Side-by-Side to bypass the intermediate MKV. The converter picks
+the longest 3D playlist. This is useful if the converter reports a
+reading buffer overflow with a MakeMKV export. Choose Scan disc and
+choose a title when you need to select a specific title or keep the
+original format.
 
 If you already saved an Original MKV containing MVC 3D, load that
 MKV in Import Disc Backup to convert it directly to Full Side-by-Side.

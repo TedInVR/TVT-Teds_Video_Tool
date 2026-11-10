@@ -666,7 +666,18 @@ function Open-DiscBackup {
         if (-not (Confirm 'Convert MVC MKV to Full Side-by-Side?' 'Choose this for an MKV that still contains both Blu-ray 3D views.')) { return }
         $destination = Pick-Output $source 'mkv' 'Full SBS'
         if ($destination) { Start-Engine @('disc-import',$source,'0','mvc',$destination) }
-    } elseif ($source) { Start-Engine @('disc-scan',$source) -discSource $source }
+    } elseif ($source) {
+        if ($source -match '\.iso$' -and (Test-Path -LiteralPath $source -PathType Leaf)) {
+            $choice = Pick-Index 'Import Blu-ray ISO' @('Convert longest 3D playlist directly to Full Side-by-Side','Scan disc and choose a title') 1
+            if ($choice -lt 0) { return }
+            if ($choice -eq 0) {
+                $destination = Pick-Output $source 'mkv' 'Full SBS'
+                if ($destination) { Start-Engine @('disc-import',$source,'0','mvc-iso',$destination) }
+                return
+            }
+        }
+        Start-Engine @('disc-scan',$source) -discSource $source
+    }
 }
 
 function Choose-Operation($operation) {
