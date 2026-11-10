@@ -1,9 +1,12 @@
 """Read disc backups with MakeMKV and optionally convert stereo video."""
 import csv
+from fractions import Fraction
 import io
 import json
+import math
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
 import subprocess
@@ -132,6 +135,66 @@ def mvc_command():
 MVC_IMAGE = "ghcr.io/brunoga/mvc2sbs:latest"
 
 
+def sbs_forge():
+    for applications in (Path("/Applications"), Path.home() / "Applications"):
+        bundle = applications / "SBS Forge.app/Contents"
+        resources = bundle / "Resources"
+        try:
+            with (bundle / "Info.plist").open("rb") as file:
+                info = plistlib.load(file)
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            continue
+        if (info.get("CFBundleIdentifier") == "net.tedinvr.sbsforge"
+                and info.get("CFBundleShortVersionString") == "0.1.3"
+                and all((resources / name).is_file() for name in
+                        ("convert.sh", "repack.sh", "check_interleave.awk"))
+                and os.access(resources / "bin/mvc-sbs", os.X_OK)):
+            return resources
+    raise ValueError("Install SBS Forge 0.1.3 in Applications to convert Blu-ray 3D on this Mac.")
+
+
+def convert_with_forge(resources, source, result, work):
+    ffmpeg = find_tool("ffmpeg") or str(resources / "bin/ffmpeg")
+    ffprobe = find_tool("ffprobe") or str(resources / "bin/ffprobe")
+    probe = json.loads(run([ffprobe, "-v", "error", "-select_streams", "v:0",
+                            "-show_streams", "-show_format", "-of", "json", str(source)]))
+    video = next(iter(probe.get("streams", [])), {})
+    if video.get("codec_name") != "h264":
+        raise ValueError("SBS Forge needs an H.264 MVC MKV. In MakeMKV, select the MVC 3D video track.")
+    fps = None
+    for rate in (video.get("avg_frame_rate"), video.get("r_frame_rate")):
+        try:
+            candidate = Fraction(rate)
+        except (ValueError, TypeError, ZeroDivisionError):
+            continue
+        if 0 < candidate <= 60:
+            fps = f"{candidate.numerator}/{candidate.denominator}"
+            break
+    try:
+        video_duration = next((value for key, value in video.get("tags", {}).items()
+                               if key.upper() == "DURATION"), None)
+        if video_duration:
+            hours, minutes, seconds = video_duration.split(":")
+            duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+        else:
+            duration = float(video.get("duration") or probe.get("format", {}).get("duration"))
+    except (ValueError, TypeError):
+        duration = 0
+    if not fps or not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Could not read a supported frame rate and duration for SBS Forge.")
+    log = work / "sbs-forge.log"
+    color = [video.get(key) or "unknown" for key in
+             ("color_space", "color_primaries", "color_transfer", "color_range")]
+    try:
+        run(["/bin/bash", str(resources / "convert.sh"), ffmpeg, ffprobe,
+             str(resources / "bin/mvc-sbs"), str(source), str(result),
+             "full", "hevc", "0", "0", fps, str(duration),
+             str(work / "sbs-progress.txt"), str(log), *color])
+    except ValueError as error:
+        detail = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+        raise ValueError(f"SBS Forge could not convert the MVC video.\n{detail[-1700:]}\n{error}") from error
+
+
 def bind_mount(source, target, readonly=False):
     fields = ["type=bind", f"source={source.resolve()}", f"target={target}"]
     if readonly:
@@ -186,16 +249,23 @@ def import_title(source, title, mode, destination):
     if mode not in ("original", "mvc", "ou", "half-ou", "sbs", "half-sbs"):
         raise ValueError("Choose a supported output layout.")
     existing_mvc = mode == "mvc" and source.is_file() and source.suffix.lower() == ".mkv"
-    if mode == "mvc":
+    forge = sbs_forge() if mode == "mvc" and sys.platform == "darwin" else None
+    if direct_iso and forge:
+        feature = next((entry for entry in scan(source) if entry["mvc"]), None)
+        if feature is None:
+            raise ValueError("MakeMKV found no MVC 3D titles. For a 2D disc, choose Scan disc and choose a title.")
+        title = feature["id"]
+    if mode == "mvc" and not forge:
         command, container = mvc_command()
         run(command + ([MVC_IMAGE] if container else []) + ["--check"])
-    ffmpeg = os.environ.get("MOVIEPARTS_FFMPEG") or find_tool("ffmpeg", ["/opt/homebrew/bin/ffmpeg"])
-    if mode not in ("original", "mvc") and not ffmpeg:
-        raise ValueError("Install FFmpeg to convert or tag packed stereo video.")
+    if mode not in ("original", "mvc"):
+        ffmpeg = os.environ.get("MOVIEPARTS_FFMPEG") or find_tool("ffmpeg", ["/opt/homebrew/bin/ffmpeg"])
+        if not ffmpeg:
+            raise ValueError("Install FFmpeg to convert or tag packed stereo video.")
     with tempfile.TemporaryDirectory(prefix=".tvt-disc-", dir=destination.parent) as folder:
         work = Path(folder)
         rip = source
-        if not (existing_mvc or direct_iso):
+        if not existing_mvc and (not direct_iso or forge):
             profile = work / "TVT.mmcp.xml"
             profile.write_text(PROFILE, encoding="utf-8")
             output = run([makemkv(), "-r", "--noscan", "--minlength=0", "--profile=" + str(profile),
@@ -207,7 +277,10 @@ def import_title(source, title, mode, destination):
         result = rip
         if mode == "mvc":
             result = work / "side-by-side.mkv"
-            convert_mvc(command, container, rip, result, work)
+            if forge:
+                convert_with_forge(forge, rip, result, work)
+            else:
+                convert_mvc(command, container, rip, result, work)
         elif mode in ("ou", "half-ou", "sbs", "half-sbs"):
             result = work / "side-by-side.mkv"
             args = [ffmpeg, "-nostdin", "-v", "error", "-i", str(rip)]

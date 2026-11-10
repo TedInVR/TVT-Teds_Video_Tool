@@ -943,8 +943,8 @@ final class TVT: NSObject, NSApplicationDelegate {
         }
         if source.pathExtension.lowercased() == "iso" {
             guard let choice = chooseOption("Import Blu-ray ISO",
-                ["Convert 3D feature directly to Full Side-by-Side", "Scan disc and choose a title"],
-                detail: "Direct conversion automatically picks the longest 3D playlist. Scan the disc to choose an alternate title or keep the original format.",
+                ["Convert 3D feature to Full Side-by-Side", "Scan disc and choose a title"],
+                detail: "TVT uses MakeMKV and SBS Forge to convert the longest MVC 3D title. Scan the disc to choose an alternate title or keep the original format.",
                 selected: preferDirectISO ? 0 : 1) else { return }
             if choice == 0 {
                 let name = source.deletingPathExtension().lastPathComponent + " Full SBS.mkv"
@@ -975,7 +975,7 @@ final class TVT: NSObject, NSApplicationDelegate {
                          "Half Over-Under → Full Side-by-Side", "Already Full Side-by-Side (tag only)",
                          "Already Half Side-by-Side (tag only)"]
             let modes = ["original", "mvc", "ou", "half-ou", "sbs", "half-sbs"]
-            let note = title.mvc ? "MakeMKV reports an MVC 3D track. Side-by-Side conversion uses Docker Desktop or a native mvc2sbs installation."
+            let note = title.mvc ? "MakeMKV reports an MVC 3D track. Side-by-Side conversion uses SBS Forge."
                                  : "Choose Original MKV if you are unsure. Preview it with Trim Clip before selecting a packed 3D layout."
             let outputChoices = title.mvc ? Array(names.prefix(2)) : names
             guard let format = self.chooseOption("Choose MKV output", outputChoices, detail: note, selected: title.mvc ? 1 : 0),
