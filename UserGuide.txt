@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.15
+Ted's Video Tool (TVT) 0.8.16
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -131,8 +131,9 @@ official MediaInfo CLI and displays its output inside the app. Reports
 include the available container, video, audio, subtitle and chapter data,
 such as codecs, resolution, frame rate, bitrate, color details, language
 tags and channel layouts. Full Details shows additional fields supplied
-by MediaInfo. JSON can be copied into another tool. Select and copy
-report text on either platform.
+by MediaInfo. On Mac, press Command-A then Command-C to copy the full
+report, or use Edit > Select All and Edit > Copy. On Windows, click
+Copy Report.
 
 Convert Video
 Choose a local video and select a preset. TVT accepts formats and

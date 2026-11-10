@@ -391,6 +391,12 @@ final class TVT: NSObject, NSApplicationDelegate {
         app.submenu?.addItem(.separator())
         app.submenu?.addItem(withTitle: "Quit Ted's Video Tool", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
+        let edit = NSMenuItem()
+        menu.addItem(edit)
+        edit.submenu = NSMenu(title: "Edit")
+        edit.submenu?.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.submenu?.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
         let windowMenu = NSMenuItem()
         menu.addItem(windowMenu)
         windowMenu.submenu = NSMenu(title: "Window")
