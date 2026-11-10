@@ -662,13 +662,16 @@ function Open-DiscBackup {
             } finally { $dialog.Dispose() }
         }
     }
+    if ($source) { Start-DiscBackup $source }
+}
+function Start-DiscBackup($source, [int]$isoDefault = 1) {
     if ($source -and $source -match '\.mkv$' -and (Test-Path -LiteralPath $source -PathType Leaf)) {
         if (-not (Confirm 'Convert MVC MKV to Full Side-by-Side?' 'Choose this for an MKV that still contains both Blu-ray 3D views.')) { return }
         $destination = Pick-Output $source 'mkv' 'Full SBS'
         if ($destination) { Start-Engine @('disc-import',$source,'0','mvc',$destination) }
     } elseif ($source) {
         if ($source -match '\.iso$' -and (Test-Path -LiteralPath $source -PathType Leaf)) {
-            $choice = Pick-Index 'Import Blu-ray ISO' @('Convert longest 3D playlist directly to Full Side-by-Side','Scan disc and choose a title') 1
+            $choice = Pick-Index 'Import Blu-ray ISO' @('Convert longest 3D playlist directly to Full Side-by-Side','Scan disc and choose a title') $isoDefault
             if ($choice -lt 0) { return }
             if ($choice -eq 0) {
                 $destination = Pick-Output $source 'mkv' 'Full SBS'
@@ -822,6 +825,12 @@ function Choose-Operation($operation) {
                 if ($destination) { Start-Engine @('layout',$from,$to,$file,$destination) }
             }
             'Convert Video' {
+                $isos = @($files | Where-Object { $_ -match '\.iso$' })
+                if ($isos.Count) {
+                    if ($files.Count -ne 1) { Notice 'Convert one ISO at a time' 'Select just the disc image, then click Convert Video again.'; return }
+                    Start-DiscBackup $isos[0] 0
+                    return
+                }
                 $choice = Pick-Index 'Convert Video - choose the output format' @($profiles | ForEach-Object { $_[1] })
                 if ($choice -lt 0) { return }
                 $extension = $profiles[$choice][0]

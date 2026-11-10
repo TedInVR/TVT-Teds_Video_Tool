@@ -927,6 +927,10 @@ final class TVT: NSObject, NSApplicationDelegate {
             guard let picked = files("Choose an ISO, disc folder or index, or an MVC 3D MKV.", multiple: false, allowFolders: true)?.first else { return }
             source = picked
         }
+        openDiscBackup(source)
+    }
+
+    func openDiscBackup(_ source: URL, preferDirectISO: Bool = false) {
         let script = resources.appendingPathComponent("disc_tools.py")
         if source.pathExtension.lowercased() == "mkv" {
             let name = source.deletingPathExtension().lastPathComponent + " Full SBS.mkv"
@@ -941,7 +945,7 @@ final class TVT: NSObject, NSApplicationDelegate {
             guard let choice = chooseOption("Import Blu-ray ISO",
                 ["Convert 3D feature directly to Full Side-by-Side", "Scan disc and choose a title"],
                 detail: "Direct conversion automatically picks the longest 3D playlist. Scan the disc to choose an alternate title or keep the original format.",
-                selected: 1) else { return }
+                selected: preferDirectISO ? 0 : 1) else { return }
             if choice == 0 {
                 let name = source.deletingPathExtension().lastPathComponent + " Full SBS.mkv"
                 guard let destination = save(name, near: source, fileExtension: "mkv") else { return }
@@ -1202,6 +1206,14 @@ final class TVT: NSObject, NSApplicationDelegate {
 
     @objc func convertVideo() {
         guard let videos = batchSources() else { return }
+        if let iso = videos.first(where: { $0.pathExtension.lowercased() == "iso" }) {
+            guard videos.count == 1 else {
+                alert("Convert one ISO at a time", "Select just the disc image, then click Convert Video again.")
+                return
+            }
+            openDiscBackup(iso, preferDirectISO: true)
+            return
+        }
         let profiles = conversionProfiles()
         guard !profiles.isEmpty else { return }
         let dialog = NSAlert()

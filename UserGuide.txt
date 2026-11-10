@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.19
+Ted's Video Tool (TVT) 0.8.20
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -74,6 +74,11 @@ instead. Otherwise TVT runs the upstream converter image from
 ghcr.io/brunoga/mvc2sbs. The first run can download the image. TVT
 checks the converter before extracting a disc title. On Mac, TVT
 includes Docker Desktop’s helper directory when launching Docker.
+
+To convert an ISO, drop it onto TVT or select it in Convert Video.
+Convert Video opens disc conversion options with the direct 3D option
+selected. Choose Scan disc and choose a title for 2D discs or when you
+need a specific title. Convert one ISO at a time.
 
 For a readable Blu-ray 3D ISO, choose Convert 3D feature directly to
 Full Side-by-Side to bypass the intermediate MKV. The converter picks
