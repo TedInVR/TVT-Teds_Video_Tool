@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.24
+Ted's Video Tool (TVT) 0.8.25
 
 The main window shows the TVT mark beside the app name and its format subtitle.
 Install and update
@@ -173,6 +173,14 @@ permission to save. Install yt-dlp and Deno using the GitHub README.
 Choose the save location for every download.
 
 Extract or Remove Audio
+Choose Keep selected audio tracks (MKV) for one video at a time.
+TVT checks English-tagged tracks by default. Review the track titles,
+language tags, codecs, and channel counts, and check any other tracks
+you want to keep. The new MKV copies the video, selected audio, and
+compatible subtitles and attachments without re-encoding. It also
+keeps chapters and uses the first retained audio track as the default.
+The source file stays intact.
+
 Choose MP3, M4A, FLAC, or WAV to export the first audio track as a
 separate file. Choose Remove audio to create a silent MKV. That option
 copies video and compatible subtitle streams without re-encoding them.

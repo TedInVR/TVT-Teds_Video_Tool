@@ -26,6 +26,14 @@ if [[ ! -x "$FFMPEG" || ! -x "$FFPROBE" ]]; then
     echo 'FFmpeg and ffprobe are required. See the TVT User Guide for setup.' >&2
     exit 1
 fi
+if [[ "$mode" == audio-tracks ]]; then
+    "$FFPROBE" -v quiet -select_streams a \
+        -show_entries stream=codec_name,channels:stream_tags=language,title -of json "$1" || {
+        echo 'Could not read the audio tracks from this file.' >&2
+        exit 1
+    }
+    exit
+fi
 if [[ "$mode" == batch-item ]]; then
     operation=$1
     setting=$2
@@ -203,10 +211,21 @@ elif [[ "$mode" == audio ]]; then
         flac) options=(-map 0:a:0 -vn -c:a flac) ;;
         wav) options=(-map 0:a:0 -vn -c:a pcm_s24le) ;;
         silent) options=(-map '0:v' -map '0:s?' -map '0:t?' -an -c copy) ;;
+        keep:*)
+            selection=${format#keep:}
+            if ! [[ "$selection" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+                echo 'Choose at least one audio track to keep.' >&2
+                exit 1
+            fi
+            IFS=, read -r -a tracks <<< "$selection"
+            options=(-map '0:v' -map '0:s?' -map '0:t?')
+            for track in "${tracks[@]}"; do options+=(-map "0:a:$track"); done
+            options+=(-map_metadata 0 -map_chapters 0 -c copy -disposition:a -default -disposition:a:0 +default)
+            ;;
         *) exit 1 ;;
     esac
     extension=$format
-    if [[ "$format" == silent ]]; then extension=mkv; fi
+    if [[ "$format" == silent || "$format" == keep:* ]]; then extension=mkv; fi
     run_ffmpeg -n -i "$source_file" "${options[@]}" "$output_stage/result.$extension"
     publish "$output_stage/result.$extension" "$destination"
 elif [[ "$mode" == subtitles ]]; then

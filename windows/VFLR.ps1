@@ -282,11 +282,12 @@ function New-EngineProcess([string[]]$arguments) {
         Errors = $process.StandardError.ReadToEndAsync()
     }
 }
-function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSource, [string]$discSource) {
+function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSource, [string]$discSource, [string]$audioSource) {
     $script:job = New-EngineProcess $arguments
     $script:job.Report = $reportName
     $script:job.TrimSource = $trimSource
     $script:job.DiscSource = $discSource
+    $script:job.AudioSource = $audioSource
     foreach ($button in $buttons) { $button.Enabled = $false }
     $browse.Enabled = $false
     $clear.Enabled = $false
@@ -298,6 +299,7 @@ function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSo
         subtitles='Preparing subtitles'; layout='Changing video layout'; info='Reading media information'
         duration='Opening trim editor'; trim='Exporting selected clip'
         'disc-scan'='Scanning disc backup'; 'disc-import'='Importing disc title'; 'batch-item'='Processing batch item'
+        'audio-tracks'='Reading audio tracks'
     }
     $job.Label = $messages[$arguments[0]] + '... Please wait.'
     if ($job.Progress -and $arguments[0] -ne 'batch-item') {
@@ -423,6 +425,7 @@ $poll.Add_Tick({
     $report = $job.Report
     $trimSource = $job.TrimSource
     $discSource = $job.DiscSource
+    $audioSource = $job.AudioSource
     $code = $job.Process.ExitCode
     $job.Process.Dispose()
     if ($job.Progress) {
@@ -452,7 +455,11 @@ $poll.Add_Tick({
         Notice 'TVT' $errors
     } else {
         $banner.BackColor = [Drawing.Color]::FromArgb(201,237,209)
-        if ($discSource) {
+        if ($audioSource) {
+            $status.Text = 'Audio tracks read.'
+            try { Select-AudioTracks $audioSource (ConvertFrom-Json $result) }
+            catch { Notice 'Could not select audio tracks' $_.Exception.Message }
+        } elseif ($discSource) {
             try { Complete-DiscScan $discSource @(ConvertFrom-Json $result) }
             catch { Notice 'Disc import failed' $_.Exception.Message }
         } elseif ($trimSource) {
@@ -690,6 +697,65 @@ function Start-DiscBackup($source, [int]$isoDefault = 1) {
     }
 }
 
+function Select-AudioTracks($file, $probe) {
+    if (-not $probe.streams) {
+        Notice 'No audio tracks' 'This video has no audio tracks to select.'
+        return
+    }
+    $languages = @{}
+    foreach ($culture in [Globalization.CultureInfo]::GetCultures([Globalization.CultureTypes]::NeutralCultures)) {
+        $languages[$culture.ThreeLetterISOLanguageName] = $culture.EnglishName
+        $languages[$culture.TwoLetterISOLanguageName] = $culture.EnglishName
+    }
+    $dialog = New-Object Windows.Forms.Form
+    try {
+        $dialog.Text = 'Choose audio tracks to keep'
+        $dialog.StartPosition = 'CenterParent'
+        $dialog.ClientSize = New-Object Drawing.Size(560, 275)
+        $hint = New-Object Windows.Forms.Label
+        $hint.Text = 'English-tagged tracks are checked. Review your selection before saving a new MKV.'
+        $hint.SetBounds(12, 10, 530, 24)
+        $tracks = New-Object Windows.Forms.CheckedListBox
+        $tracks.CheckOnClick = $true
+        $tracks.HorizontalScrollbar = $true
+        $tracks.SetBounds(12, 38, 530, 185)
+        $number = 0
+        foreach ($stream in $probe.streams) {
+            $number++
+            $code = [string]$stream.tags.language
+            $language = if (-not $code -or $code -eq 'und') { 'Unknown language' }
+                        elseif ($languages.ContainsKey($code)) { $languages[$code] }
+                        else { $code }
+            $channels = if ($stream.channels) { "$($stream.channels) ch" }
+            $label = (@("Track $number", $language, $stream.tags.title, $stream.codec_name, $channels) |
+                      Where-Object { $_ }) -join ' - '
+            [void]$tracks.Items.Add($label, ($code -in @('eng','en')))
+        }
+        $ok = New-Object Windows.Forms.Button
+        $ok.Text = 'Continue'
+        $ok.DialogResult = 'OK'
+        $ok.SetBounds(370, 235, 80, 27)
+        $cancel = New-Object Windows.Forms.Button
+        $cancel.Text = 'Cancel'
+        $cancel.DialogResult = 'Cancel'
+        $cancel.SetBounds(462, 235, 80, 27)
+        $dialog.Controls.AddRange(@($hint,$tracks,$ok,$cancel))
+        $dialog.AcceptButton = $ok
+        $dialog.CancelButton = $cancel
+        while ($dialog.ShowDialog($form) -eq 'OK') {
+            if ($tracks.CheckedIndices.Count) {
+                $destination = Pick-Output $file 'mkv' 'Selected Audio'
+                if ($destination) {
+                    $setting = 'keep:' + ($tracks.CheckedIndices -join ',')
+                    Start-Engine @('audio',$setting,$file,$destination)
+                }
+                return
+            }
+            Notice 'Choose at least one track' 'Check the audio tracks you want to keep.'
+        }
+    } finally { $dialog.Dispose() }
+}
+
 function Choose-Operation($operation) {
     try {
         if ($operation -eq 'Import Disc Backup') { Open-DiscBackup; return }
@@ -757,8 +823,14 @@ function Choose-Operation($operation) {
                 if ($choice -ge 0) { Start-Engine @('info',@('summary','full','json')[$choice],$file) ([IO.Path]::GetFileName($file)) }
             }
             'Extract or Remove Audio' {
-                $choice = Pick-Index 'Extract first audio track or remove all audio' @('MP3','M4A','FLAC','WAV','Remove audio (MKV)')
+                $choice = Pick-Index 'Extract or Remove Audio' @('Keep selected audio tracks (MKV)','MP3','M4A','FLAC','WAV','Remove audio (MKV)')
                 if ($choice -lt 0) { return }
+                if ($choice -eq 0) {
+                    if ($files.Count -ne 1) { Notice 'Choose one video' 'Audio track selection is specific to each video.'; return }
+                    Start-Engine @('audio-tracks',$file) -audioSource $file
+                    return
+                }
+                $choice--
                 $format = @('mp3','m4a','flac','wav','silent')[$choice]
                 if ($files.Count -gt 1) { Start-Batch 'audio' $format $files; return }
                 $extension = @('mp3','m4a','flac','wav','mkv')[$choice]

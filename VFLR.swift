@@ -1113,18 +1113,88 @@ final class TVT: NSObject, NSApplicationDelegate {
     }
 
     @objc func audioTools() {
-        let options = [("MP3 audio", "mp3"), ("M4A audio", "m4a"), ("FLAC audio", "flac"),
+        let options = [("Keep selected audio tracks (MKV)", "keep"),
+                       ("MP3 audio", "mp3"), ("M4A audio", "m4a"), ("FLAC audio", "flac"),
                        ("WAV audio", "wav"), ("Remove audio (MKV)", "silent")]
         guard let videos = batchSources(),
               let choice = chooseOption("Extract or Remove Audio", options.map { $0.0 },
                                         detail: "Audio extraction uses the first audio track.") else { return }
         let format = options[choice].1
+        if format == "keep" {
+            guard videos.count == 1 else {
+                alert("Choose one video", "Audio track selection is specific to each video.")
+                return
+            }
+            chooseAudioTracks(videos[0])
+            return
+        }
         if videos.count > 1 { batchExport("audio", setting: format, videos: videos); return }
         let source = videos[0]
         let ext = format == "silent" ? "mkv" : format
         let name = source.deletingPathExtension().lastPathComponent + (format == "silent" ? " Silent." : " Audio.") + ext
         guard let output = save(name, near: source, fileExtension: ext) else { return }
         export(["audio", format, source.path, output])
+    }
+
+    func chooseAudioTracks(_ source: URL) {
+        struct Track: Decodable {
+            let codec_name: String?
+            let channels: Int?
+            let tags: [String: String]?
+        }
+        struct Probe: Decodable { let streams: [Track]? }
+        beginProcessing("Reading audio tracks…")
+        execute(resources.appendingPathComponent("engine.sh"), ["audio-tracks", source.path]) { success, output in
+            guard success, let probe = try? JSONDecoder().decode(Probe.self, from: Data(output.utf8)) else {
+                self.endProcessing("Could not read audio tracks.", success: false)
+                self.alert("Could not read audio tracks", success ? "The audio track list was unreadable." : output)
+                return
+            }
+            self.endProcessing("Audio tracks read.", success: true)
+            guard let tracks = probe.streams, !tracks.isEmpty else {
+                self.alert("No audio tracks", "This video has no audio tracks to select.")
+                return
+            }
+            let checks = tracks.enumerated().map { index, track -> NSButton in
+                let tags = track.tags ?? [:]
+                let code = tags.first { $0.key.lowercased() == "language" }?.value.lowercased() ?? "und"
+                let language = code == "und" ? "Unknown language" : Locale(identifier: "en").localizedString(forLanguageCode: code) ?? code
+                let title = tags.first { $0.key.lowercased() == "title" }?.value
+                let channels = track.channels.map { "\($0) ch" }
+                let detail = [language, title, track.codec_name, channels].compactMap { $0 }.filter { !$0.isEmpty }
+                let check = NSButton(checkboxWithTitle: (["Track \(index + 1)"] + detail).joined(separator: " · "),
+                                     target: nil, action: nil)
+                check.state = ["eng", "en"].contains(code) ? .on : .off
+                return check
+            }
+            let list = NSStackView(views: checks)
+            list.orientation = .vertical
+            list.alignment = .leading
+            list.spacing = 6
+            list.setFrameSize(list.fittingSize)
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 430, height: min(230, list.fittingSize.height + 4)))
+            scroll.hasVerticalScroller = true
+            scroll.hasHorizontalScroller = true
+            scroll.documentView = list
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: list.isFlipped ? 0 : max(0, list.frame.height - scroll.contentView.bounds.height)))
+            let dialog = NSAlert()
+            dialog.messageText = "Choose audio tracks to keep"
+            dialog.informativeText = "English-tagged tracks are checked. Review your selection before saving a new MKV."
+            dialog.accessoryView = scroll
+            dialog.addButton(withTitle: "Continue")
+            dialog.addButton(withTitle: "Cancel")
+            while dialog.runModal() == .alertFirstButtonReturn {
+                let selected = checks.indices.filter { checks[$0].state == .on }
+                guard !selected.isEmpty else {
+                    self.alert("Choose at least one track", "Check the audio tracks you want to keep.")
+                    continue
+                }
+                let name = source.deletingPathExtension().lastPathComponent + " Selected Audio.mkv"
+                guard let output = self.save(name, near: source, fileExtension: "mkv") else { return }
+                self.export(["audio", "keep:" + selected.map { String($0) }.joined(separator: ","), source.path, output])
+                return
+            }
+        }
     }
 
     @objc func addSubtitles() {

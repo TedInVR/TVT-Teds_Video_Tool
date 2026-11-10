@@ -39,7 +39,7 @@ fi
 export MOVIEPARTS_FFMPEG MOVIEPARTS_FFPROBE
 MOVIEPARTS_FFMPEG=$(command -v ffmpeg)
 MOVIEPARTS_FFPROBE=$(command -v ffprobe)
-if [[ "$mode" == duration ]]; then
+if [[ "$mode" == duration || "$mode" == audio-tracks ]]; then
     exec /bin/bash "$engine" "$mode" "${arguments[@]}"
 fi
 result=$(/bin/bash "$engine" "$mode" "${arguments[@]}")
