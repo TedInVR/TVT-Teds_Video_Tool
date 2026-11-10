@@ -113,6 +113,13 @@ def mvc_command():
     docker = find_tool("docker", docker_paths)
     if not docker:
         raise ValueError("Install and open Docker Desktop for the packaged 3D converter, then retry. See Help > TVT User Guide.")
+    # Docker looks up credential helpers on PATH, even when launched by absolute path.
+    helper_dirs = [Path(docker).resolve().parent]
+    if sys.platform == "darwin":
+        helper_dirs += [Path(docker_paths[0]).parent, Path.home() / ".docker/bin"]
+    os.environ["PATH"] = os.pathsep.join(
+        [str(folder) for folder in helper_dirs if folder.is_dir()] + [os.environ.get("PATH", os.defpath)]
+    )
     try:
         run([docker, "info", "--format", "{{.OSType}}"])
     except ValueError as error:

@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.17
+Ted's Video Tool (TVT) 0.8.18
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -72,7 +72,8 @@ on an M-series Mac and Linux containers on Windows). See
 docs.docker.com/desktop/. If native mvc2sbs is on PATH, TVT uses that
 instead. Otherwise TVT runs the upstream converter image from
 ghcr.io/brunoga/mvc2sbs. The first run can download the image. TVT
-checks the converter before extracting a disc title.
+checks the converter before extracting a disc title. On Mac, TVT
+includes Docker Desktop’s helper directory when launching Docker.
 
 If you already saved an Original MKV containing MVC 3D, load that
 MKV in Import Disc Backup to convert it directly to Full Side-by-Side.
