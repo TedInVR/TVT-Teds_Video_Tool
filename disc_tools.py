@@ -1,5 +1,6 @@
 """Read disc backups with MakeMKV and optionally convert stereo video."""
 import csv
+import io
 import json
 import os
 from pathlib import Path
@@ -102,34 +103,74 @@ def scan(source):
     return titles
 
 
+def mvc_command():
+    converter = find_tool("mvc2sbs", ["/opt/homebrew/bin/mvc2sbs", "/usr/local/bin/mvc2sbs"])
+    if converter:
+        return [converter], False
+    docker_paths = ["/Applications/Docker.app/Contents/Resources/bin/docker", "/opt/homebrew/bin/docker"]
+    if os.environ.get("ProgramFiles"):
+        docker_paths.append(Path(os.environ["ProgramFiles"]) / "Docker/Docker/resources/bin/docker.exe")
+    docker = find_tool("docker", docker_paths)
+    if not docker:
+        raise ValueError("Install and open Docker Desktop for the packaged 3D converter, then retry. See Help > TVT User Guide.")
+    try:
+        run([docker, "info", "--format", "{{.OSType}}"])
+    except ValueError as error:
+        raise ValueError("Open Docker Desktop and wait for its engine to start, then retry.\n" + str(error)) from error
+    return [docker, "run", "--rm"], True
+
+
+MVC_IMAGE = "ghcr.io/brunoga/mvc2sbs:latest"
+
+
+def bind_mount(source, target, readonly=False):
+    fields = ["type=bind", f"source={source.resolve()}", f"target={target}"]
+    if readonly:
+        fields.append("readonly")
+    buffer = io.StringIO()
+    csv.writer(buffer, lineterminator="\n").writerow(fields)
+    return buffer.getvalue()[:-1]
+
+
+def convert_mvc(command, container, source, result, work):
+    if container:
+        run(command + ["--mount", bind_mount(source, "/input.mkv", readonly=True),
+                       "--mount", bind_mount(work, "/work"), MVC_IMAGE,
+                       "--input", "/input.mkv", "--output", "/work/" + result.name,
+                       "--layout", "full", "--temp", "/work"])
+    else:
+        run(command + ["--input", str(source), "--output", str(result),
+                       "--layout", "full", "--temp", str(work)])
+
+
 def import_title(source, title, mode, destination):
     if destination.suffix.lower() != ".mkv" or destination.exists() or destination.is_symlink():
         raise ValueError("Choose a new MKV output filename.")
     if mode not in ("original", "mvc", "ou", "half-ou", "sbs", "half-sbs"):
         raise ValueError("Choose a supported output layout.")
-    converter = None
+    existing_mvc = mode == "mvc" and source.is_file() and source.suffix.lower() == ".mkv"
     if mode == "mvc":
-        converter = find_tool("mvc2sbs", ["/opt/homebrew/bin/mvc2sbs", "/usr/local/bin/mvc2sbs"])
-        if not converter:
-            raise ValueError("MVC-to-SBS needs mvc2sbs and its decoder tools. See the TVT User Guide, or choose Original MKV to retain the 3D track.")
-        run([converter, "--check"])
+        command, container = mvc_command()
+        run(command + ([MVC_IMAGE] if container else []) + ["--check"])
     ffmpeg = os.environ.get("MOVIEPARTS_FFMPEG") or find_tool("ffmpeg", ["/opt/homebrew/bin/ffmpeg"])
     if mode not in ("original", "mvc") and not ffmpeg:
         raise ValueError("Install FFmpeg to convert or tag packed stereo video.")
     with tempfile.TemporaryDirectory(prefix=".tvt-disc-", dir=destination.parent) as folder:
         work = Path(folder)
-        profile = work / "TVT.mmcp.xml"
-        profile.write_text(PROFILE, encoding="utf-8")
-        output = run([makemkv(), "-r", "--noscan", "--minlength=0", "--profile=" + str(profile),
-                      "mkv", source_spec(source), str(title), str(work)])
-        results = list(work.glob("*.mkv"))
-        if len(results) != 1 or results[0].stat().st_size == 0:
-            raise ValueError("MakeMKV did not produce one playable title.\n" + output[-1800:])
-        rip = results[0]
+        rip = source
+        if not existing_mvc:
+            profile = work / "TVT.mmcp.xml"
+            profile.write_text(PROFILE, encoding="utf-8")
+            output = run([makemkv(), "-r", "--noscan", "--minlength=0", "--profile=" + str(profile),
+                          "mkv", source_spec(source), str(title), str(work)])
+            results = list(work.glob("*.mkv"))
+            if len(results) != 1 or results[0].stat().st_size == 0:
+                raise ValueError("MakeMKV did not produce one playable title.\n" + output[-1800:])
+            rip = results[0]
         result = rip
         if mode == "mvc":
             result = work / "side-by-side.mkv"
-            run([converter, "--input", str(rip), "--output", str(result), "--layout", "full", "--temp", str(work)])
+            convert_mvc(command, container, rip, result, work)
         elif mode in ("ou", "half-ou", "sbs", "half-sbs"):
             result = work / "side-by-side.mkv"
             args = [ffmpeg, "-nostdin", "-v", "error", "-i", str(rip)]

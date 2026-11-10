@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.16
+Ted's Video Tool (TVT) 0.8.17
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -67,12 +67,18 @@ one above the other indicate Over-Under. Two side by side indicate SBS.
 Disc subtitle tracks remain selectable, with their original placement.
 
 If the title reports MVC Blu-ray 3D, choose MVC Blu-ray 3D to Full
-Side-by-Side. This option needs the separate mvc2sbs command and its
-dependencies. Put mvc2sbs on PATH and run mvc2sbs --check in Terminal
-or PowerShell. It lists missing tools such as tsMuxeR, edge264, x264
-and mkvmerge. See pkg.go.dev/github.com/brunoga/pipeliner/cmd/mvc2sbs.
-If those tools are unavailable, choose Original MKV to retain MVC;
-that file can be opened separately in your MVC-to-SBS tool.
+Side-by-Side. Install and open Docker Desktop once (use Apple silicon
+on an M-series Mac and Linux containers on Windows). See
+docs.docker.com/desktop/. If native mvc2sbs is on PATH, TVT uses that
+instead. Otherwise TVT runs the upstream converter image from
+ghcr.io/brunoga/mvc2sbs. The first run can download the image. TVT
+checks the converter before extracting a disc title.
+
+If you already saved an Original MKV containing MVC 3D, load that
+MKV in Import Disc Backup to convert it directly to Full Side-by-Side.
+The original MKV stays intact. Docker Desktop may ask for access to
+the input or output folder. Choose an output folder with room for
+the temporary files and the new MKV.
 
 Choose an output location with enough room for the extracted title
 and a second file if converting 3D. TVT removes temporary files after

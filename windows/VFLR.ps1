@@ -645,14 +645,14 @@ function Complete-DiscScan($file, $titles) {
     }
 }
 function Open-DiscBackup {
-    $loaded = @($script:sources | Where-Object { $_ -match '\.(iso|ifo|bdmv)$' -or (Test-Path -LiteralPath $_ -PathType Container) })
+    $loaded = @($script:sources | Where-Object { $_ -match '\.(iso|ifo|bdmv|mkv)$' -or (Test-Path -LiteralPath $_ -PathType Container) })
     if ($loaded.Count -eq 1) { $source = $loaded[0] }
     elseif ($loaded.Count -gt 1) {
         $choice = Pick-Index 'Choose a loaded disc backup' $loaded
         if ($choice -lt 0) { return }
         $source = $loaded[$choice]
     } else {
-        $kind = Pick-Index 'Choose a disc backup' @('ISO or disc index file','VIDEO_TS or BDMV folder')
+        $kind = Pick-Index 'Choose a disc backup' @('ISO, disc index or MVC 3D MKV','VIDEO_TS or BDMV folder')
         if ($kind -lt 0) { return }
         if ($kind -eq 0) { $source = @(Pick-Files $false) | Select-Object -First 1 }
         else {
@@ -662,7 +662,11 @@ function Open-DiscBackup {
             } finally { $dialog.Dispose() }
         }
     }
-    if ($source) { Start-Engine @('disc-scan',$source) -discSource $source }
+    if ($source -and $source -match '\.mkv$' -and (Test-Path -LiteralPath $source -PathType Leaf)) {
+        if (-not (Confirm 'Convert MVC MKV to Full Side-by-Side?' 'Choose this for an MKV that still contains both Blu-ray 3D views.')) { return }
+        $destination = Pick-Output $source 'mkv' 'Full SBS'
+        if ($destination) { Start-Engine @('disc-import',$source,'0','mvc',$destination) }
+    } elseif ($source) { Start-Engine @('disc-scan',$source) -discSource $source }
 }
 
 function Choose-Operation($operation) {

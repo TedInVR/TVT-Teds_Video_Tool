@@ -913,7 +913,7 @@ final class TVT: NSObject, NSApplicationDelegate {
 
     @objc func importDiscBackup() {
         let loaded = sources.filter {
-            ["iso", "ifo", "bdmv"].contains($0.pathExtension.lowercased()) ||
+            ["iso", "ifo", "bdmv", "mkv"].contains($0.pathExtension.lowercased()) ||
                 (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         }
         let source: URL
@@ -924,10 +924,19 @@ final class TVT: NSObject, NSApplicationDelegate {
             guard let choice = chooseOption("Choose a loaded disc backup", labels) else { return }
             source = loaded[choice]
         } else {
-            guard let picked = files("Choose an ISO, VIDEO_TS or BDMV folder, or its index file.", multiple: false, allowFolders: true)?.first else { return }
+            guard let picked = files("Choose an ISO, disc folder or index, or an MVC 3D MKV.", multiple: false, allowFolders: true)?.first else { return }
             source = picked
         }
         let script = resources.appendingPathComponent("disc_tools.py")
+        if source.pathExtension.lowercased() == "mkv" {
+            let name = source.deletingPathExtension().lastPathComponent + " Full SBS.mkv"
+            guard alert("Convert MVC MKV to Full Side-by-Side?",
+                        "Choose this for an MKV that still contains both Blu-ray 3D views.",
+                        ["Continue", "Cancel"]) == 0,
+                  let destination = save(name, near: source, fileExtension: "mkv") else { return }
+            runDiscImport(script, source: source, title: 0, mode: "mvc", destination: destination)
+            return
+        }
         beginProcessing("Scanning disc backup… Please wait.")
         execute(script, ["disc-scan", source.path]) { success, output in
             guard success, let titles = try? JSONDecoder().decode([DiscTitle].self, from: Data(output.utf8)), !titles.isEmpty else {
@@ -950,19 +959,23 @@ final class TVT: NSObject, NSApplicationDelegate {
                          "Half Over-Under → Full Side-by-Side", "Already Full Side-by-Side (tag only)",
                          "Already Half Side-by-Side (tag only)"]
             let modes = ["original", "mvc", "ou", "half-ou", "sbs", "half-sbs"]
-            let note = title.mvc ? "MakeMKV reports an MVC 3D track. Side-by-Side conversion requires mvc2sbs."
+            let note = title.mvc ? "MakeMKV reports an MVC 3D track. Side-by-Side conversion uses Docker Desktop or a native mvc2sbs installation."
                                  : "Choose Original MKV if you are unsure. Preview it with Trim Clip before selecting a packed 3D layout."
             let outputChoices = title.mvc ? Array(names.prefix(2)) : names
             guard let format = self.chooseOption("Choose MKV output", outputChoices, detail: note, selected: title.mvc ? 1 : 0),
                   let destination = self.save("Disc Title \(title.id).mkv", near: source, fileExtension: "mkv") else { return }
-            self.beginProcessing("Importing disc title… Please wait.")
-            self.execute(script, ["disc-import", source.path, String(title.id), modes[format], destination]) { imported, detail in
-                self.endProcessing(imported ? "Finished. Your disc title is ready." : "Disc import failed.", success: imported)
-                if imported {
-                    self.result = URL(fileURLWithPath: destination)
-                    self.revealButton.isHidden = false
-                } else { self.alert("Could not import disc title", String(detail.suffix(2400))) }
-            }
+            self.runDiscImport(script, source: source, title: title.id, mode: modes[format], destination: destination)
+        }
+    }
+
+    func runDiscImport(_ script: URL, source: URL, title: Int, mode: String, destination: String) {
+        beginProcessing(mode == "mvc" ? "Converting Blu-ray 3D to Full Side-by-Side…" : "Importing disc title… Please wait.")
+        execute(script, ["disc-import", source.path, String(title), mode, destination]) { imported, detail in
+            self.endProcessing(imported ? "Finished. Your disc title is ready." : "Disc import failed.", success: imported)
+            if imported {
+                self.result = URL(fileURLWithPath: destination)
+                self.revealButton.isHidden = false
+            } else { self.alert("Could not import disc title", String(detail.suffix(2400))) }
         }
     }
 
