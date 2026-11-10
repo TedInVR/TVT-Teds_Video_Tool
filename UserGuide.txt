@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.22
+Ted's Video Tool (TVT) 0.8.23
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -70,6 +70,7 @@ On macOS, keep SBS Forge 0.1.3 installed in Applications alongside
 MakeMKV. TVT runs its conversion worker locally with Apple's HEVC
 hardware encoder. Docker is unnecessary for TVT on macOS. The Full
 Side-by-Side MKV retains original audio, subtitles, and chapters.
+TVT reads video metadata separately from FFprobe decoder messages.
 MVC-specific subtitle positioning is carried as-is. Allow space for the
 temporary MakeMKV export and several copies of the encoded video.
 

@@ -59,13 +59,15 @@ def makemkv():
     return tool
 
 
-def run(args, timeout=None):
+def run(args, timeout=None, *, separate_stderr=False):
     # Avoid a console window on Windows, including during long scans.
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    result = subprocess.run(args, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
                             encoding="utf-8", errors="replace", creationflags=flags, timeout=timeout)
     if result.returncode:
-        messages = [line for line in result.stdout.splitlines() if not line.startswith(("PRG", "DRV:"))]
+        diagnostics = result.stderr or result.stdout
+        messages = [line for line in diagnostics.splitlines() if not line.startswith(("PRG", "DRV:"))]
         detail = "\n".join(messages[-12:])[-2000:]
         status = f"{Path(args[0]).name} exited with code {result.returncode}."
         raise ValueError(f"{detail}\n{status}" if detail else status)
@@ -156,8 +158,14 @@ def sbs_forge():
 def convert_with_forge(resources, source, result, work):
     ffmpeg = find_tool("ffmpeg") or str(resources / "bin/ffmpeg")
     ffprobe = find_tool("ffprobe") or str(resources / "bin/ffprobe")
-    probe = json.loads(run([ffprobe, "-v", "error", "-select_streams", "v:0",
-                            "-show_streams", "-show_format", "-of", "json", str(source)]))
+    # FFprobe can emit decoder diagnostics even when it successfully writes JSON.
+    metadata = run([ffprobe, "-v", "error", "-select_streams", "v:0",
+                    "-show_streams", "-show_format", "-of", "json", str(source)],
+                   separate_stderr=True)
+    try:
+        probe = json.loads(metadata)
+    except json.JSONDecodeError as error:
+        raise ValueError("FFprobe returned unreadable video metadata before SBS Forge could start.") from error
     video = next(iter(probe.get("streams", [])), {})
     if video.get("codec_name") != "h264":
         raise ValueError("SBS Forge needs an H.264 MVC MKV. In MakeMKV, select the MVC 3D video track.")
