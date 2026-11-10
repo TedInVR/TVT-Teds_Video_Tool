@@ -56,14 +56,16 @@ def makemkv():
     return tool
 
 
-def run(args):
+def run(args, timeout=None):
     # Avoid a console window on Windows, including during long scans.
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            encoding="utf-8", errors="replace", creationflags=flags)
+                            encoding="utf-8", errors="replace", creationflags=flags, timeout=timeout)
     if result.returncode:
         messages = [line for line in result.stdout.splitlines() if not line.startswith(("PRG", "DRV:"))]
-        raise ValueError("\n".join(messages[-12:])[-2200:] or f"{Path(args[0]).name} returned error {result.returncode}.")
+        detail = "\n".join(messages[-12:])[-2000:]
+        status = f"{Path(args[0]).name} exited with code {result.returncode}."
+        raise ValueError(f"{detail}\n{status}" if detail else status)
     return result.stdout
 
 
@@ -142,10 +144,32 @@ def bind_mount(source, target, readonly=False):
 def convert_mvc(command, container, source, result, work):
     if container:
         input_path = "/input" + source.suffix.lower()
-        run(command + ["--mount", bind_mount(source, input_path, readonly=True),
-                       "--mount", bind_mount(work, "/work"), MVC_IMAGE,
-                       "--input", input_path, "--output", "/work/" + result.name,
-                       "--layout", "full", "--temp", "/work"])
+        docker = command[0]
+        cidfile = work / "converter.cid"
+        try:
+            run([docker, "run", "--cidfile", str(cidfile),
+                 "--mount", bind_mount(source, input_path, readonly=True),
+                 "--mount", bind_mount(work, "/work"), MVC_IMAGE,
+                 "--input", input_path, "--output", "/work/" + result.name,
+                 "--layout", "full", "--temp", "/work"])
+        except ValueError as error:
+            try:
+                cid = cidfile.read_text(encoding="ascii").strip()
+                if not re.fullmatch(r"[0-9a-f]{64}", cid):
+                    raise ValueError("Invalid container ID.")
+                state = run([docker, "inspect", "--format",
+                             "Docker container exit code: {{.State.ExitCode}}. Out of memory: {{.State.OOMKilled}}.",
+                             cid], timeout=5).strip()
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                state = "Docker container state unavailable."
+            raise ValueError(f"{error}\n{state}") from error
+        finally:
+            try:
+                cid = cidfile.read_text(encoding="ascii").strip()
+                if re.fullmatch(r"[0-9a-f]{64}", cid):
+                    run([docker, "rm", cid], timeout=5)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                pass
     else:
         run(command + ["--input", str(source), "--output", str(result),
                        "--layout", "full", "--temp", str(work)])

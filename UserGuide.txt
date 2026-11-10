@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.20
+Ted's Video Tool (TVT) 0.8.21
 
 Install and update
 For the first upgrade from VFLR, use the installer in the GitHub README.
@@ -91,7 +91,9 @@ If you already saved an Original MKV containing MVC 3D, load that
 MKV in Import Disc Backup to convert it directly to Full Side-by-Side.
 The original MKV stays intact. Docker Desktop may ask for access to
 the input or output folder. Choose an output folder with room for
-the temporary files and the new MKV.
+the temporary files and the new MKV. If conversion fails, the error
+includes the exit code and, when Docker reports it, whether the
+container was stopped for running out of memory.
 
 Choose an output location with enough room for the extracted title
 and a second file if converting 3D. TVT removes temporary files after
