@@ -147,6 +147,69 @@ final class RestoreComparison: NSObject {
     }
 }
 
+final class VideoOrderList: NSView, NSTableViewDataSource, NSTableViewDelegate {
+    var videos: [URL]
+    let table = NSTableView()
+
+    init(_ videos: [URL]) {
+        self.videos = videos
+        super.init(frame: NSRect(x: 0, y: 0, width: 600, height: 260))
+        for (identifier, title, width) in [("position", "#", 35.0), ("name", "Video", 340.0), ("folder", "Folder", 200.0)] {
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
+            column.title = title
+            column.width = CGFloat(width)
+            table.addTableColumn(column)
+        }
+        table.dataSource = self
+        table.delegate = self
+        table.allowsMultipleSelection = false
+        table.rowHeight = 25
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 40, width: 600, height: 220))
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.documentView = table
+        addSubview(scroll)
+        let controls = NSStackView(views: [
+            NSButton(title: "Move Up", target: self, action: #selector(moveUp)),
+            NSButton(title: "Move Down", target: self, action: #selector(moveDown))
+        ])
+        controls.frame = NSRect(x: 0, y: 0, width: 230, height: 30)
+        addSubview(controls)
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { videos.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let video = videos[row]
+        let text: String
+        switch tableColumn?.identifier.rawValue {
+        case "position": text = String(row + 1)
+        case "folder": text = video.deletingLastPathComponent().path
+        default: text = video.lastPathComponent
+        }
+        let label = NSTextField(labelWithString: text)
+        label.lineBreakMode = .byTruncatingMiddle
+        label.toolTip = video.path
+        return label
+    }
+
+    func move(_ offset: Int) {
+        let row = table.selectedRow
+        let destination = row + offset
+        guard videos.indices.contains(row), videos.indices.contains(destination) else { return }
+        videos.swapAt(row, destination)
+        table.reloadData()
+        table.selectRowIndexes(IndexSet(integer: destination), byExtendingSelection: false)
+        table.scrollRowToVisible(destination)
+    }
+
+    @objc func moveUp() { move(-1) }
+    @objc func moveDown() { move(1) }
+}
+
 final class TrimRange: NSView {
     var start = 0.0
     var end = 1.0
@@ -1292,30 +1355,26 @@ final class TVT: NSObject, NSApplicationDelegate {
 
     func joinFiles(_ selected: [URL]) {
         guard selected.count >= 2 else { alert("Choose at least two parts", "Select all numbered parts to join."); return }
-        let ordered = sorted(selected)
-        guard alert("Join these parts in this order?", ordered.map { $0.lastPathComponent }.joined(separator: "\n"), ["Join", "Cancel"]) == 0 else { return }
+        guard let ordered = orderVideos(selected, title: "Join Parts") else { return }
         export(["join"] + ordered.map { $0.path })
+    }
+
+    func orderVideos(_ selected: [URL], title: String) -> [URL]? {
+        let list = VideoOrderList(sorted(selected))
+        let dialog = NSAlert()
+        dialog.messageText = title + " — Choose the playback order"
+        dialog.informativeText = "Read from top to bottom. Select a video and use Move Up or Move Down. The first clip sets the output size and frame rate. Link Videos uses each clip's first audio track."
+        dialog.accessoryView = list
+        dialog.addButton(withTitle: "Continue")
+        dialog.addButton(withTitle: "Cancel")
+        guard dialog.runModal() == .alertFirstButtonReturn else { return nil }
+        return list.videos
     }
 
     @objc func link() {
         guard let selected = sourceFiles("Select the videos to link.", multiple: true) else { return }
         guard selected.count >= 2 else { alert("Choose at least two videos", "Select all clips you want to link."); return }
-        var remaining = sorted(selected)
-        var ordered: [URL] = []
-        while remaining.count > 1 {
-            let dialog = NSAlert()
-            dialog.messageText = "Choose video \(ordered.count + 1) of \(selected.count)"
-            dialog.informativeText = "The first clip sets the output size and frame rate. The export uses one stereo audio track."
-            let popup = ClipOrderMenu(frame: NSRect(x: 0, y: 0, width: 360, height: 30), pullsDown: false)
-            popup.addItems(withTitles: remaining.enumerated().map { "\($0.offset + 1). \($0.element.lastPathComponent) — \($0.element.deletingLastPathComponent().path)" })
-            dialog.accessoryView = popup
-            dialog.addButton(withTitle: "Continue")
-            dialog.addButton(withTitle: "Cancel")
-            guard dialog.runModal() == .alertFirstButtonReturn else { return }
-            ordered.append(remaining.remove(at: popup.indexOfSelectedItem))
-        }
-        ordered += remaining
-        guard alert("Link these videos in this order?", ordered.map { $0.lastPathComponent }.joined(separator: "\n"), ["Save", "Cancel"]) == 0,
+        guard let ordered = orderVideos(selected, title: "Link Videos"),
               let output = save("Linked Video.mp4", near: ordered[0]) else { return }
         export(["link", output] + ordered.map { $0.path })
     }

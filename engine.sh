@@ -428,7 +428,7 @@ elif [[ "$mode" == link ]]; then
     read -r width height <<< "$geometry"
     fps=$(probe_video avg_frame_rate "$first")
     if ! [[ "$fps" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]]; then fps=30; fi
-    filter="$(fit_filter "$width" "$height"),pad=$width:$height:(ow-iw)/2:(oh-ih)/2,fps=$fps"
+    filter="$(fit_filter "$width" "$height"),pad=$width:$height:(ow-iw)/2:(oh-ih)/2,fps=$fps,setpts=PTS-STARTPTS"
     index=0
     for source_file in "$@"; do
         index=$((index+1))
@@ -507,8 +507,8 @@ elif [[ "$mode" == join ]]; then
         if [[ "$index" == 0 ]]; then
             signature=$current
         elif [[ "$current" != "$signature" ]]; then
-            echo 'Parts have different stream settings. Convert every part with identical IW3 settings before joining.' >&2
-            exit 1
+            /bin/bash "$0" link "$out_dir/Joined Video.mp4" "$@"
+            exit
         fi
         index=$((index+1))
         if command -v cygpath >/dev/null; then

@@ -756,6 +756,60 @@ function Select-AudioTracks($file, $probe) {
     } finally { $dialog.Dispose() }
 }
 
+function Move-VideoOrder($sender, [int]$offset) {
+    $state = $sender.FindForm().Tag
+    $row = $state.List.SelectedIndex
+    $destination = $row + $offset
+    if ($row -lt 0 -or $destination -lt 0 -or $destination -ge $state.Files.Count) { return }
+    $temp = $state.Files[$row]
+    $state.Files[$row] = $state.Files[$destination]
+    $state.Files[$destination] = $temp
+    $state.List.Items.Clear()
+    for ($i = 0; $i -lt $state.Files.Count; $i++) {
+        [void]$state.List.Items.Add("$($i + 1). $($state.Files[$i])")
+    }
+    $state.List.SelectedIndex = $destination
+}
+
+function Pick-VideoOrder([string[]]$files) {
+    $dialog = New-Object Windows.Forms.Form
+    try {
+        $dialog.Text = 'Choose the playback order'
+        $dialog.StartPosition = 'CenterParent'
+        $dialog.ClientSize = New-Object Drawing.Size(680, 330)
+        $hint = New-Object Windows.Forms.Label
+        $hint.Text = 'Read from top to bottom. Select a video and use Move Up or Move Down.'
+        $hint.SetBounds(12, 10, 650, 24)
+        $list = New-Object Windows.Forms.ListBox
+        $list.HorizontalScrollbar = $true
+        $list.SetBounds(12, 38, 650, 235)
+        $ordered = @($files | Sort-Object { [regex]::Replace([IO.Path]::GetFileName($_), '\d+', { param($m) $m.Value.PadLeft(20, '0') }) })
+        for ($i = 0; $i -lt $ordered.Count; $i++) { [void]$list.Items.Add("$($i + 1). $($ordered[$i])") }
+        $list.SelectedIndex = 0
+        $dialog.Tag = @{ List=$list; Files=$ordered }
+        $up = New-Object Windows.Forms.Button
+        $up.Text = 'Move Up'
+        $up.SetBounds(12, 288, 100, 28)
+        $up.Add_Click({ param($sender,$eventArgs) Move-VideoOrder $sender -1 })
+        $down = New-Object Windows.Forms.Button
+        $down.Text = 'Move Down'
+        $down.SetBounds(120, 288, 100, 28)
+        $down.Add_Click({ param($sender,$eventArgs) Move-VideoOrder $sender 1 })
+        $ok = New-Object Windows.Forms.Button
+        $ok.Text = 'Continue'
+        $ok.DialogResult = 'OK'
+        $ok.SetBounds(460, 288, 95, 28)
+        $cancel = New-Object Windows.Forms.Button
+        $cancel.Text = 'Cancel'
+        $cancel.DialogResult = 'Cancel'
+        $cancel.SetBounds(567, 288, 95, 28)
+        $dialog.Controls.AddRange(@($hint,$list,$up,$down,$ok,$cancel))
+        $dialog.AcceptButton = $ok
+        $dialog.CancelButton = $cancel
+        if ($dialog.ShowDialog($form) -eq 'OK') { $dialog.Tag.Files }
+    } finally { $dialog.Dispose() }
+}
+
 function Choose-Operation($operation) {
     try {
         if ($operation -eq 'Import Disc Backup') { Open-DiscBackup; return }
@@ -792,20 +846,12 @@ function Choose-Operation($operation) {
                 if ($choice -ge 0) { Start-Engine @('split', "$($choice + 2)", $file) }
             }
             'Join Parts' {
-                $ordered = @($files | Sort-Object { [regex]::Replace([IO.Path]::GetFileName($_), '\d+', { param($m) $m.Value.PadLeft(20, '0') }) })
-                if (Confirm 'Join Parts' ($ordered -join "`n")) { Start-Engine (@('join') + $ordered) }
+                $ordered = @(Pick-VideoOrder $files)
+                if ($ordered.Count) { Start-Engine (@('join') + $ordered) }
             }
             'Link Videos' {
-                $remaining = New-Object 'System.Collections.Generic.List[string]'
-                $remaining.AddRange([string[]]@($files | Sort-Object))
-                $ordered = @()
-                while ($remaining.Count -gt 1) {
-                    $choice = Pick-Index "Choose clip $($ordered.Count + 1) of $($files.Count)" $remaining.ToArray()
-                    if ($choice -lt 0) { return }
-                    $ordered += $remaining[$choice]
-                    $remaining.RemoveAt($choice)
-                }
-                $ordered += $remaining[0]
+                $ordered = @(Pick-VideoOrder $files)
+                if (-not $ordered.Count) { return }
                 $destination = Pick-Output $ordered[0] 'mp4' 'Linked'
                 if ($destination) { Start-Engine (@('link',$destination) + $ordered) }
             }

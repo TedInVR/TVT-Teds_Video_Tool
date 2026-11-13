@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.28
+Ted's Video Tool (TVT) 0.8.29
 
 The main window and app icon use the same TVT mark.
 Install and update
@@ -123,11 +123,18 @@ re-encoding. The MP4 parts are saved in a folder beside the original.
 On Mac, you can also drag one video onto the app to split it.
 
 Join Parts
-Choose all matching numbered parts. TVT sorts the numbers and shows the
-order before copying the streams into one MP4. Check the list before continuing to make sure every part is included.
+Choose two or more parts. TVT starts with filename number order and
+shows every video in one list. Select a row and use Move Up or Move Down
+to adjust the order. Matching parts are copied into one MP4. If their
+stream settings differ, TVT automatically converts and links them using
+the first clip's size and frame rate, with the first audio track of each
+clip converted to stereo AAC. Subtitles are omitted on that conversion path.
 
 Link Videos
-Select two or more clips and pick their playback order. The first clip sets
+Select two or more clips. All clips appear in one numbered list on Mac
+and Windows. Filename numbers set the initial order. Select a clip and
+use Move Up or Move Down, then Continue. That exact list is used for export.
+The first clip sets
 the frame size and rate. Different shapes are fitted with black padding.
 TVT includes the full clips, including credits and recaps. Each clip
 contributes its first audio track in stereo or silence if it has no audio.
