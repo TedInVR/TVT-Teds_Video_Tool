@@ -166,6 +166,15 @@ final class TrimEditor: NSObject {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 810, height: 590),
                           styleMask: [.titled], backing: .buffered, defer: false)
     let image = ProtectionPreview()
+    let playerView = AVPlayerView()
+    let player = AVPlayer()
+    let playButton = NSButton(title: "Play", target: nil, action: nil)
+    var playbackObserver: Any?
+    var playbackEndObserver: NSObjectProtocol?
+    var playbackStart = 0.0
+    var playbackEnd = 0.0
+    var preparingPlayback = false
+    var playbackGeneration = 0
     let timeline = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     let times = NSTextField(labelWithString: "")
     let previewState = NSTextField(labelWithString: "Loading preview…")
@@ -216,7 +225,45 @@ final class TrimEditor: NSObject {
         image.imageScaling = .scaleProportionallyUpOrDown
         image.widthAnchor.constraint(equalToConstant: 778).isActive = true
         image.heightAnchor.constraint(equalToConstant: 405).isActive = true
-        stack.addArrangedSubview(image)
+        let preview = NSView()
+        preview.widthAnchor.constraint(equalToConstant: 778).isActive = true
+        preview.heightAnchor.constraint(equalToConstant: 405).isActive = true
+        image.frame = NSRect(x: 0, y: 0, width: 778, height: 405)
+        preview.addSubview(image)
+        playerView.frame = NSRect(x: 0, y: 0, width: 778, height: 405)
+        playerView.player = player
+        playerView.controlsStyle = .none
+        playerView.isHidden = true
+        preview.addSubview(playerView)
+        stack.addArrangedSubview(preview)
+        playButton.target = self
+        playButton.action = #selector(togglePlayback)
+        playButton.keyEquivalent = " "
+        let volume = NSSlider(value: 1, minValue: 0, maxValue: 1, target: self, action: #selector(changeVolume(_:)))
+        volume.widthAnchor.constraint(equalToConstant: 100).isActive = true
+        stack.addArrangedSubview(NSStackView(views: [
+            playButton, NSTextField(labelWithString: "Volume"), volume
+        ]))
+        window.setContentSize(NSSize(width: 810, height: restoring ? 655 : 625))
+        playbackObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.05, preferredTimescale: 600),
+                                                          queue: .main) { [weak self] time in
+            guard let self = self, !self.closed, self.player.rate > 0, time.seconds.isFinite else { return }
+            self.timeline.doubleValue = min(self.duration, self.playbackStart + time.seconds)
+            self.updateTimes()
+            self.previewState.stringValue = "Playing at " + self.timeText(self.timeline.doubleValue)
+            if self.timeline.doubleValue >= self.playbackEnd - 0.08 {
+                self.pausePlayback()
+                self.previewState.stringValue = "Playback paused. Press Play to continue."
+            }
+        }
+        playbackEndObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
+                                                                     object: nil, queue: .main) { [weak self] note in
+            guard let self = self, let item = note.object as? AVPlayerItem,
+                  item === self.player.currentItem, !self.closed else { return }
+            self.timeline.doubleValue = self.playbackEnd
+            self.pausePlayback()
+            self.previewState.stringValue = "Playback paused. Press Play to continue."
+        }
         stack.addArrangedSubview(previewState)
         timeline.maxValue = duration
         timeline.isContinuous = true
@@ -265,9 +312,71 @@ final class TrimEditor: NSObject {
     }
 
     @objc func scrub() {
+        let position = timeline.doubleValue
+        pausePlayback()
+        timeline.doubleValue = position
+        playerView.isHidden = true
         updateTimes()
         requestedTime = min(timeline.doubleValue, max(0, duration - 0.15))
         loadPreview()
+    }
+
+    @objc func changeVolume(_ sender: NSSlider) { player.volume = Float(sender.doubleValue) }
+
+    func pausePlayback() {
+        if player.rate > 0 {
+            let current = player.currentTime().seconds
+            if current.isFinite { timeline.doubleValue = min(duration, playbackStart + current) }
+        }
+        player.pause()
+        playButton.title = "Play"
+        updateTimes()
+    }
+
+    @objc func togglePlayback() {
+        guard !closed, !preparingPlayback, let app = app else { return }
+        if player.rate > 0 { pausePlayback(); return }
+        let position = timeline.doubleValue >= duration - 0.05 ? 0 : timeline.doubleValue
+        timeline.doubleValue = position
+        if player.currentItem != nil, position >= playbackStart, position < playbackEnd - 0.1 {
+            playerView.isHidden = false
+            player.seek(to: CMTime(seconds: position - playbackStart, preferredTimescale: 600),
+                        toleranceBefore: .zero, toleranceAfter: .zero)
+            player.play()
+            playButton.title = "Pause"
+            return
+        }
+        preparingPlayback = true
+        playbackGeneration += 1
+        let generation = playbackGeneration
+        let path = directory.appendingPathComponent("playback-\(generation).mp4")
+        previewState.stringValue = "Preparing playback with sound…"
+        playButton.isEnabled = false
+        app.execute(app.resources.appendingPathComponent("engine.sh"),
+                    ["playback-preview", app.mediaTime(position), source.path, path.path]) { success, detail in
+            self.preparingPlayback = false
+            self.playButton.isEnabled = true
+            guard !self.closed else {
+                try? FileManager.default.removeItem(at: self.directory)
+                return
+            }
+            guard success else {
+                self.previewState.stringValue = "Could not prepare playback."
+                app.alert("Playback unavailable", String(detail.suffix(2400)))
+                return
+            }
+            self.playbackStart = position
+            self.playbackEnd = min(self.duration, position + 60)
+            self.player.replaceCurrentItem(with: AVPlayerItem(url: path))
+            // A scrub during preparation keeps its requested position.
+            if abs(self.timeline.doubleValue - position) > 0.15 {
+                self.previewState.stringValue = "Position changed. Press Play when ready."
+                return
+            }
+            self.playerView.isHidden = false
+            self.player.play()
+            self.playButton.title = "Pause"
+        }
     }
 
     func loadPreview() {
@@ -280,6 +389,7 @@ final class TrimEditor: NSObject {
         app.execute(app.resources.appendingPathComponent("engine.sh"), args) { success, _ in
             self.previewInFlight = false
             if self.closed {
+                guard !self.preparingPlayback else { return }
                 try? FileManager.default.removeItem(at: self.directory)
                 return
             }
@@ -297,10 +407,11 @@ final class TrimEditor: NSObject {
     @objc func forward() { timeline.doubleValue = min(duration, timeline.doubleValue + 0.1); scrub() }
     @objc func clearBoxes() { image.boxes = []; image.needsDisplay = true }
     @objc func markStart() {
+        pausePlayback()
         start = timeline.doubleValue
         updateTimes()
     }
-    @objc func markEnd() { end = timeline.doubleValue; updateTimes() }
+    @objc func markEnd() { pausePlayback(); end = timeline.doubleValue; updateTimes() }
     @objc func cancel() { finish() }
 
     @objc func saveSelection() {
@@ -325,6 +436,8 @@ final class TrimEditor: NSObject {
     }
 
     func restoreSelection(preview: Bool) {
+        pausePlayback()
+        playerView.isHidden = true
         guard let app = app, end > start else { return }
         let length = preview ? min(5, end - start) : end - start
         let warning = preview
@@ -349,7 +462,14 @@ final class TrimEditor: NSObject {
 
     func finish() {
         closed = true
-        if !previewInFlight { try? FileManager.default.removeItem(at: directory) }
+        player.pause()
+        if let observer = playbackObserver { player.removeTimeObserver(observer); playbackObserver = nil }
+        if let observer = playbackEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            playbackEndObserver = nil
+        }
+        player.replaceCurrentItem(with: nil)
+        if !previewInFlight && !preparingPlayback { try? FileManager.default.removeItem(at: directory) }
         app?.window.endSheet(window)
         app?.trimEditor = nil
     }
@@ -399,7 +519,9 @@ final class TVT: NSObject, NSApplicationDelegate {
         let edit = NSMenuItem()
         menu.addItem(edit)
         edit.submenu = NSMenu(title: "Edit")
+        edit.submenu?.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.submenu?.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.submenu?.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.submenu?.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
         let windowMenu = NSMenuItem()
@@ -1240,6 +1362,15 @@ final class TVT: NSObject, NSApplicationDelegate {
     }
 
     @objc func downloadOnline() {
+        beginProcessing("Checking and setting up the video downloader…")
+        execute(resources.appendingPathComponent("engine.sh"), ["download-setup"]) { success, detail in
+            self.endProcessing(success ? "Video downloader ready." : "Downloader setup failed.", success: success)
+            if success { self.downloadReady() }
+            else { self.alert("Could not set up the video downloader", String(detail.suffix(3000))) }
+        }
+    }
+
+    func downloadReady() {
         guard let url = textInput("Paste an online video page URL"),
               let choice = chooseOption("Download Online", ["Video (MKV)", "Audio Only (MP3)"]) else { return }
         let ext = choice == 0 ? "mkv" : "mp3"

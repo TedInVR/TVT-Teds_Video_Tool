@@ -3,6 +3,34 @@ set -euo pipefail
 export LC_ALL=C
 mode=$1
 shift
+if [[ "$mode" == download-setup ]]; then
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    downloader="/Applications/VFLR Development/bin/yt-dlp"
+    existing=${VFLR_YTDLP:-$downloader}
+    if [[ -x "$existing" ]] && "$existing" --version >/dev/null 2>&1; then exit; fi
+    if command -v yt-dlp >/dev/null && yt-dlp --version >/dev/null 2>&1; then exit; fi
+    mkdir -p "$(dirname "$downloader")"
+    setup_dir=$(mktemp -d "$(dirname "$downloader")/.setup-XXXXXX")
+    trap 'rm -rf "$setup_dir"' EXIT
+    release_url=$(/usr/bin/curl --fail --silent --show-error --location --connect-timeout 15 --max-time 120 \
+        -o /dev/null -w '%{url_effective}' https://github.com/yt-dlp/yt-dlp/releases/latest)
+    [[ "$release_url" == https://github.com/yt-dlp/yt-dlp/releases/tag/* ]] || {
+        echo 'Could not identify the downloader release.' >&2; exit 1;
+    }
+    sums_url="${release_url/\/tag\//\/download\/}/SHA2-256SUMS"
+    /usr/bin/curl --fail --silent --show-error --location --connect-timeout 15 --max-time 120 \
+        "$sums_url" -o "$setup_dir/SHA2-256SUMS"
+    expected=$(awk '$2 == "yt-dlp_macos" {print $1}' "$setup_dir/SHA2-256SUMS")
+    [[ "$expected" =~ ^[a-f0-9]{64}$ ]]
+    /usr/bin/curl --fail --silent --show-error --location --connect-timeout 15 --max-time 300 \
+        "${sums_url%/SHA2-256SUMS}/yt-dlp_macos" -o "$setup_dir/yt-dlp"
+    actual=$(/usr/bin/shasum -a 256 "$setup_dir/yt-dlp")
+    [[ "${actual%% *}" == "$expected" ]] || { echo 'Downloader checksum did not match.' >&2; exit 1; }
+    chmod 755 "$setup_dir/yt-dlp"
+    "$setup_dir/yt-dlp" --version >/dev/null
+    mv -f "$setup_dir/yt-dlp" "$downloader"
+    exit
+fi
 if [[ "$mode" == info ]]; then
     view=$1
     source_file=$2
@@ -172,6 +200,16 @@ elif [[ "$mode" == preview ]]; then
         exit 1
     fi
     printf '%s\n' "$destination"
+elif [[ "$mode" == playback-preview ]]; then
+    time=$1
+    source_file=$2
+    destination=$3
+    [[ "$time" =~ ^[0-9]+([.][0-9]+)?$ ]]
+    run_ffmpeg -n -ss "$time" -i "$source_file" -t 60 -map 0:V:0 -map '0:a:0?' \
+        -vf "scale=w='max(2,trunc(min(960,540*dar)/2)*2)':h='max(2,trunc(min(540,960/dar)/2)*2)',setsar=1" \
+        -c:v libx264 -preset ultrafast -crf 24 -pix_fmt yuv420p -c:a aac -ac 2 -b:a 128k \
+        -sn -dn -movflags +faststart "$destination"
+    printf '%s\n' "$destination"
 elif [[ "$mode" == download ]]; then
     quality=$1
     url=$2
@@ -180,7 +218,8 @@ elif [[ "$mode" == download ]]; then
         echo 'Enter an HTTP or HTTPS video page URL.' >&2
         exit 1
     fi
-    ytdlp=${VFLR_YTDLP:-/opt/homebrew/bin/yt-dlp}
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    ytdlp=${VFLR_YTDLP:-/Applications/VFLR Development/bin/yt-dlp}
     if [[ ! -x "$ytdlp" ]]; then ytdlp=$(command -v yt-dlp) || { echo 'Install yt-dlp. See the User Guide.' >&2; exit 1; }; fi
     # Finder-launched apps do not inherit the Homebrew PATH.
     export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"

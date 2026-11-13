@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.27
+Ted's Video Tool (TVT) 0.8.28
 
 The main window and app icon use the same TVT mark.
 Install and update
@@ -97,6 +97,13 @@ Load a video and choose Trim Clip in Edit and Assemble. Scrub the
 timeline to see a preview frame. Use -0.1 s and +0.1 s to fine-tune
 the position. At the beginning of the section, click Mark Start. At
 the end, click Mark End. The colored range bar shows the selection.
+On Mac, Play and Pause (or Space) let you listen while choosing cut points. The volume
+slider controls preview sound. Mark Start and Mark End pause playback at
+the current position. TVT prepares up to 60 seconds of video and audio
+from the cursor, using a temporary H.264/AAC preview for compatibility.
+There can be a short wait while this preview is prepared. Press Play again
+to continue from the end of a preview segment. Scrubbing returns to the
+still-frame view. Preview files are removed when the editor closes.
 Click Export Clip and choose MP4, MKV, MOV, WebM, AVI, or MPEG-TS.
 The original file stays in place.
 
@@ -165,11 +172,18 @@ numbered files that can be joined by stream copy.
 
 
 Download Online
-Paste one video page URL, then choose Video (MKV) or Audio Only (MP3).
+On Mac, Download Online checks yt-dlp and automatically installs the official
+standalone macOS downloader under /Applications/VFLR Development/bin when
+needed. TVT verifies the release checksum before installing it. A network
+connection and a writable development folder are required. Use Command-V
+or Edit > Paste in the URL field, then choose Video (MKV) or Audio Only
+(MP3). Facebook videos must be accessible to the downloader. Videos that
+require a browser login may still report a site or access error.
+Windows retains its existing downloader setup and still-frame trim editor.
 TVT uses yt-dlp, the same download engine used by Stacher. Supported
 sites and formats depend on yt-dlp and the page. Private, protected, or
 sign-in-only videos may be unavailable. Download material you have
-permission to save. Install yt-dlp and Deno using the GitHub README.
+permission to save. For sites that require Deno, follow the GitHub README.
 Choose the save location for every download.
 
 Replacing videos on Mac
