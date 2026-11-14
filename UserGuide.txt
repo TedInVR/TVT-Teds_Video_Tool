@@ -1,4 +1,14 @@
-Ted's Video Tool (TVT) 0.8.29
+Ted's Video Tool (TVT) 0.8.30
+
+0.8.30 fixes the Mac update build failure caused by the clip-order
+buttons sharing action names with AppKit commands. Windows retains
+the same clip-order controls.
+Mac builds give the matching TVT icon a versioned resource name to help
+Finder refresh its displayed artwork after an update.
+On Mac, in-app updates preserve the running app's filename when it is
+installed directly in Applications. You can rename it TVT_Ted's Video Tool.
+An upgrade started from an older version may still install as TVT.app once;
+open that updated copy, then give it your preferred name.
 
 The main window and app icon use the same TVT mark.
 Install and update

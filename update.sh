@@ -1,7 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 repo=TedInVR/TVT-Teds_Video_Tool
-target=/Applications/TVT.app
+target=${TVT_INSTALL_TARGET:-/Applications/TVT.app}
+validate_target() {
+    [[ "$target" == /Applications/*.app && "${target#/Applications/}" != */* ]] || {
+        echo 'TVT must be installed directly in Applications to update.' >&2
+        exit 1
+    }
+}
+validate_target
 legacy_target=/Applications/VFLR.app
 development='/Applications/VFLR Development'
 lock="$development/.install-lock"
@@ -77,7 +84,7 @@ prepare_install() {
     stage_build "$release" "$sha" "$stage"
     if [[ -n "$parent_pid" ]]; then
         cp "${BASH_SOURCE[0]}" "$stage/install-helper.sh"
-        /usr/bin/nohup /bin/bash "$stage/install-helper.sh" apply "$stage" "$parent_pid" "$restart" \
+        TVT_INSTALL_TARGET="$target" /usr/bin/nohup /bin/bash "$stage/install-helper.sh" apply "$stage" "$parent_pid" "$restart" \
             </dev/null >/dev/null 2>&1 &
         trap - EXIT
     else
@@ -94,7 +101,10 @@ prepare_install() {
 }
 case "${1:-bootstrap}" in
     check) check_release "$2" ;;
-    prepare) prepare_install "$2" "$3" "$4" "${5:-}" ;;
+    prepare)
+        if [[ -n "${6:-}" ]]; then target=$6; validate_target; fi
+        prepare_install "$2" "$3" "$4" "${5:-}"
+        ;;
     apply)
         stage=$2
         trap 'if [[ -n "$stage" ]]; then rm -rf "$stage"; fi; if [[ -d "$lock" ]]; then rmdir "$lock"; fi' EXIT

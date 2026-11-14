@@ -170,8 +170,8 @@ final class VideoOrderList: NSView, NSTableViewDataSource, NSTableViewDelegate {
         scroll.documentView = table
         addSubview(scroll)
         let controls = NSStackView(views: [
-            NSButton(title: "Move Up", target: self, action: #selector(moveUp)),
-            NSButton(title: "Move Down", target: self, action: #selector(moveDown))
+            NSButton(title: "Move Up", target: self, action: #selector(moveSelectedVideoUp)),
+            NSButton(title: "Move Down", target: self, action: #selector(moveSelectedVideoDown))
         ])
         controls.frame = NSRect(x: 0, y: 0, width: 230, height: 30)
         addSubview(controls)
@@ -206,8 +206,8 @@ final class VideoOrderList: NSView, NSTableViewDataSource, NSTableViewDelegate {
         table.scrollRowToVisible(destination)
     }
 
-    @objc func moveUp() { move(-1) }
-    @objc func moveDown() { move(1) }
+    @objc func moveSelectedVideoUp() { move(-1) }
+    @objc func moveSelectedVideoDown() { move(1) }
 }
 
 final class TrimRange: NSView {
@@ -1721,7 +1721,8 @@ final class TVT: NSObject, NSApplicationDelegate {
             if self.alert("TVT \(fields[0]) is available", "TVT will prepare the update, close to install it, and reopen automatically.", ["Quit and Install Update", "Later"]) != 0 { return }
             self.checking = true
             self.beginProcessing("Preparing update… TVT will reopen automatically.")
-            self.execute(script, ["prepare", fields[0], fields[1], String(ProcessInfo.processInfo.processIdentifier), "restart"]) { prepared, detail in
+            self.execute(script, ["prepare", fields[0], fields[1], String(ProcessInfo.processInfo.processIdentifier),
+                                  "restart", Bundle.main.bundleURL.path]) { prepared, detail in
                 self.checking = false
                 self.queued = prepared
                 self.endProcessing(prepared ? "Installing update…" : "Could not prepare update.", success: prepared)

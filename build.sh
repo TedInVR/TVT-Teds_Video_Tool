@@ -8,7 +8,7 @@ contents="$app/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 MACOSX_DEPLOYMENT_TARGET=12.0 /usr/bin/xcrun swiftc -O VFLR.swift -o "$contents/MacOS/TVT"
 cp engine.sh update.sh UserGuide.txt TVT.png ConversionProfiles.tsv subtitle_tools.py restore.sh disc_tools.py "$contents/Resources/"
-cp VFLR.icns "$contents/Resources/TVT.icns"
+cp VFLR.icns "$contents/Resources/TVT-$version.icns"
 cat > "$contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -18,7 +18,7 @@ cat > "$contents/Info.plist" <<PLIST
 <key>CFBundleName</key><string>Ted's Video Tool</string>
 <key>CFBundleDisplayName</key><string>Ted's Video Tool</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleIconFile</key><string>TVT.icns</string>
+<key>CFBundleIconFile</key><string>TVT-$version.icns</string>
 <key>CFBundleShortVersionString</key><string>$version</string>
 <key>CFBundleVersion</key><string>$version</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
