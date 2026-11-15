@@ -72,6 +72,8 @@ if [[ "$mode" == batch-item ]]; then
         upscale:2160) suffix=4K; extension=mp4 ;;
         convert:mp4|convert:mkv|convert:mov|convert:webm|convert:avi|convert:ts)
             suffix=Converted; extension=$setting ;;
+        convert:cross-sbsl|convert:cross-sbs2l) suffix="Cross-eye"; extension=mkv ;;
+        convert:anaglyph-sbsl|convert:anaglyph-sbs2l) suffix=Anaglyph; extension=mkv ;;
         audio:mp3|audio:m4a|audio:flac|audio:wav)
             suffix=Audio; extension=$setting ;;
         audio:silent) suffix=Silent; extension=mkv ;;
@@ -357,6 +359,24 @@ elif [[ "$mode" == layout ]]; then
     fi
     run_ffmpeg -n -i "$source_file" "${video_filter[@]}" -map '0:a?' \
         "${video_encoding[@]}" -c:a copy ${flags[@]+"${flags[@]}"} "$output_stage/result.mkv"
+    publish "$output_stage/result.mkv" "$destination"
+elif [[ "$mode" == convert && ( "$1" == cross-* || "$1" == anaglyph-* ) ]]; then
+    setting=$1
+    source_file=$2
+    destination=$3
+    input=${setting#*-}
+    case "$input" in sbsl|sbs2l) ;; *) echo 'Choose Full or Half Side-by-Side input.' >&2; exit 1 ;; esac
+    case "${setting%%-*}" in
+        cross) output=sbsr; stereo=right_left ;;
+        anaglyph) output=arcd; stereo=mono ;;
+        *) exit 1 ;;
+    esac
+    [[ "$destination" == *.mkv ]] || { echo 'Choose an MKV output filename.' >&2; exit 1; }
+    stage_output "$destination"
+    filter="stereo3d=in=$input:out=$output,scale=w='max(2,trunc(iw*sar/2)*2)':h='max(2,trunc(ih/2)*2)',setsar=1,sidedata=mode=delete:type=STEREO3D"
+    run_ffmpeg -n -i "$source_file" -map 0:V:0 -map '0:a?' -map '0:s?' -map '0:t?' \
+        -map_metadata 0 -map_chapters 0 -vf "$filter" "${video_encoding[@]}" -c:a copy -c:s copy -c:t copy \
+        -metadata:s:v:0 "stereo_mode=$stereo" "$output_stage/result.mkv"
     publish "$output_stage/result.mkv" "$destination"
 elif [[ "$mode" == convert || "$mode" == trim ]]; then
     format=$1

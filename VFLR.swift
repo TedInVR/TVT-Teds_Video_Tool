@@ -1632,13 +1632,26 @@ final class TVT: NSObject, NSApplicationDelegate {
         guard !profiles.isEmpty else { return }
         let dialog = NSAlert()
         dialog.messageText = "Convert Video"
-        dialog.informativeText = "Choose an output format. MKV keeps subtitle streams. The other presets export video and audio."
-        let popup = ClipOrderMenu(frame: NSRect(x: 0, y: 0, width: 280, height: 30), pullsDown: false)
-        popup.addItems(withTitles: profiles.map { $0[1] })
+        dialog.informativeText = "Choose an output format, or convert left-eye-first Side-by-Side 3D to Cross-eye or Red/Cyan Anaglyph."
+        let popup = ClipOrderMenu(frame: NSRect(x: 0, y: 0, width: 400, height: 30), pullsDown: false)
+        popup.addItems(withTitles: profiles.map { $0[1] } + ["3D Side-by-Side → Cross-eye (MKV)",
+                                                          "3D Side-by-Side → Red/Cyan Anaglyph (MKV)"])
         dialog.accessoryView = popup
         dialog.addButton(withTitle: "Continue")
         dialog.addButton(withTitle: "Cancel")
         guard dialog.runModal() == .alertFirstButtonReturn else { return }
+        if popup.indexOfSelectedItem >= profiles.count {
+            guard let input = chooseOption("Current Side-by-Side format",
+                                            ["Full Side-by-Side (left eye first)", "Half Side-by-Side (left eye first)"],
+                                            detail: "Choose the layout of the source videos. For a batch, all inputs must use this layout.") else { return }
+            let crossEye = popup.indexOfSelectedItem == profiles.count
+            let setting = (crossEye ? "cross-" : "anaglyph-") + (input == 0 ? "sbsl" : "sbs2l")
+            if videos.count > 1 { batchExport("convert", setting: setting, videos: videos); return }
+            let source = videos[0]
+            let name = source.deletingPathExtension().lastPathComponent + (crossEye ? " Cross-eye.mkv" : " Anaglyph.mkv")
+            exportVideo(["convert", setting, source.path], source: source, name: name, fileExtension: "mkv")
+            return
+        }
         let format = profiles[popup.indexOfSelectedItem][0]
         if videos.count > 1 { batchExport("convert", setting: format, videos: videos); return }
         let source = videos[0]

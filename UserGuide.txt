@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.30
+Ted's Video Tool (TVT) 0.8.31
 
 0.8.30 fixes the Mac update build failure caused by the clip-order
 buttons sharing action names with AppKit commands. Windows retains
@@ -149,6 +149,20 @@ the frame size and rate. Different shapes are fitted with black padding.
 TVT includes the full clips, including credits and recaps. Each clip
 contributes its first audio track in stereo or silence if it has no audio.
 The output is an H.264 MP4 with AAC audio.
+
+Cross-eye and Anaglyph video
+In Convert Video, choose 3D Side-by-Side to Cross-eye or Red/Cyan
+Anaglyph. Choose Full or Half Side-by-Side for the source, with the
+left-eye view on the left. Cross-eye swaps the eye views and outputs
+full-width SBS with the right eye first. Anaglyph combines both eyes
+using the Dubois red/cyan method for red-left, cyan-right glasses.
+Both outputs have square pixels. Half-SBS inputs are expanded to
+restore each eye's proportions. Output is H.264 video in MKV, with
+original audio, compatible subtitle tracks, attachments, and chapters.
+Existing subtitle placement is copied as-is and may need adjustment.
+Batch conversion uses the same chosen input layout for all videos.
+Mac follows the Replace Videos and Move Originals to Trash setting.
+Windows saves a separate copy. These options are available on both.
 
 Upscale Video
 Choose 1080p (up to 1920×1080) or 4K (up to 3840×2160). TVT uses Lanczos

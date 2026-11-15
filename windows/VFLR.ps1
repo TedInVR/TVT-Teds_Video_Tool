@@ -962,8 +962,20 @@ function Choose-Operation($operation) {
                     Start-DiscBackup $isos[0] 0
                     return
                 }
-                $choice = Pick-Index 'Convert Video - choose the output format' @($profiles | ForEach-Object { $_[1] })
+                $choices = @($profiles | ForEach-Object { $_[1] }) + @('3D Side-by-Side to Cross-eye (MKV)','3D Side-by-Side to Red/Cyan Anaglyph (MKV)')
+                $choice = Pick-Index 'Convert Video - choose the output format' $choices
                 if ($choice -lt 0) { return }
+                if ($choice -ge $profiles.Count) {
+                    $input = Pick-Index 'Current Side-by-Side format' @('Full Side-by-Side (left eye first)','Half Side-by-Side (left eye first)')
+                    if ($input -lt 0) { return }
+                    $cross = $choice -eq $profiles.Count
+                    $setting = $(if ($cross) { 'cross-' } else { 'anaglyph-' }) + @('sbsl','sbs2l')[$input]
+                    if ($files.Count -gt 1) { Start-Batch 'convert' $setting $files; return }
+                    $suffix = if ($cross) { 'Cross-eye' } else { 'Anaglyph' }
+                    $destination = Pick-Output $file 'mkv' $suffix
+                    if ($destination) { Start-Engine @('convert',$setting,$file,$destination) }
+                    return
+                }
                 $extension = $profiles[$choice][0]
                 if ($files.Count -gt 1) { Start-Batch 'convert' $extension $files; return }
                 $destination = Pick-Output $file $extension 'Converted'
