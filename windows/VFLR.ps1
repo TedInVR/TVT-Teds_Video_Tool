@@ -10,6 +10,7 @@ $form.Text = "Ted's Video Tool (TVT) $version"
 $form.StartPosition = 'CenterScreen'
 $form.ClientSize = New-Object Drawing.Size(632, 543)
 $menu = New-Object Windows.Forms.MenuStrip
+$appsMenu = $menu.Items.Add('Apps')
 $helpMenu = $menu.Items.Add('Help')
 $guide = $helpMenu.DropDownItems.Add('TVT User Guide')
 $guide.Add_Click({ Start-Process notepad.exe -ArgumentList (Quote-Arg (Join-Path $root 'UserGuide.txt')) })
@@ -1274,6 +1275,143 @@ $form.Add_FormClosing({
     if ($installPoll.Enabled) { $eventArgs.Cancel = $true; return }
     if ($job) { $eventArgs.Cancel = $true; Notice 'TVT' 'Wait for the current operation to finish before closing.' }
 })
+# Related apps are shortcuts; installing or removing a shortcut never removes an app.
+$script:relatedAppsFile = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'TVT\RelatedApps.json'
+$script:relatedBuiltins = @(
+    @{Name='InjectZ'; URL='https://github.com/TedInVR/InjectZ'; Names=@('InjectZ','Inject Z'); Description='InjectZ turns photographs into stereoscopic 3D images, including side-by-side, cross-eye and red/cyan anaglyph outputs and animated wigglegrams. Some engines need separate setup or model downloads.'},
+    @{Name='StereoMask for Mac'; URL='https://github.com/TedInVR/StereoMask-Mac'; Names=@('StereoMask'); Description='StereoMask for Mac frames stereoscopic images and creates out-of-frame effects, with brushes, lassos, text, speech bubbles and editable projects. A collaboration between Subbiah Rathinagiri and Theodore Whitten. This project is for macOS.'},
+    @{Name='VM ReSizer'; URL='https://github.com/TedInVR/VMReSizer'; Names=@('VM Re-Sizer','VM ReSizer','VMReSizer'); Description='VM Re-Sizer prepares stereo photos for View-Master-style reels. Frame, zoom and position both eyes together, preview the reel frame, and export separate left and right images at full resolution or Image3D-ready size.'},
+    @{Name='Stereo Slideshow'; URL='https://github.com/TedInVR/StereoSlideshow'; Names=@('Stereo Slideshow','StereoSlideshow'); Description='Stereo Slideshow creates stereoscopic photo and video slideshows with music, titles, captions, fades and optional zoom or pan. Export side-by-side or red/cyan anaglyph video and save editable projects.'}
+)
+$script:relatedCustom = @()
+$script:relatedLocations = @{}
+if (Test-Path -LiteralPath $script:relatedAppsFile) {
+    try {
+        $settings = Get-Content -LiteralPath $script:relatedAppsFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $script:relatedCustom = @($settings.custom | Where-Object { $_.name -and $_.path } | ForEach-Object { @{name=[string]$_.name; path=[string]$_.path} })
+        foreach ($entry in $settings.builtins.PSObject.Properties) { $script:relatedLocations[$entry.Name] = [string]$entry.Value }
+    } catch { Notice 'Apps menu' 'Saved app shortcuts could not be read. You can add them again from Apps.' }
+}
+function Save-RelatedApps {
+    $directory = Split-Path $script:relatedAppsFile
+    [void](New-Item -ItemType Directory -Path $directory -Force)
+    $temporary = Join-Path $directory ([guid]::NewGuid().ToString() + '.tmp')
+    try {
+        @{custom=@($script:relatedCustom); builtins=$script:relatedLocations} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporary -Encoding UTF8
+        Move-Item -LiteralPath $temporary -Destination $script:relatedAppsFile -Force
+    } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+}
+function Pick-RelatedApp($title) {
+    $picker = New-Object Windows.Forms.OpenFileDialog
+    try {
+        $picker.Title = $title
+        $picker.Filter = 'Applications and shortcuts|*.exe;*.lnk;*.appref-ms|All files|*.*'
+        $picker.CheckFileExists = $true
+        if ($picker.ShowDialog($form) -eq 'OK') { return $picker.FileName }
+    } finally { $picker.Dispose() }
+}
+function Open-RelatedApp($entry) {
+    try {
+        $paths = @()
+        if ($entry.ContainsKey('URL')) {
+            if ($script:relatedLocations.ContainsKey($entry.Name)) { $paths += $script:relatedLocations[$entry.Name] }
+            # Discover shortcuts without assuming an individual user's install path.
+            foreach ($folder in @([Environment]::GetFolderPath('Programs'),[Environment]::GetFolderPath('CommonPrograms'))) {
+                if ($folder -and (Test-Path -LiteralPath $folder)) {
+                    $paths += @(Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -in $entry.Names } | ForEach-Object { $_.FullName })
+                }
+            }
+            foreach ($name in $entry.Names) {
+                $command = Get-Command ($name + '.exe') -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($command) { $paths += $command.Source }
+            }
+        } else { $paths += $entry.path }
+        $found = $paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+        if ($found) { Start-Process -FilePath $found; return }
+        if (-not $entry.ContainsKey('URL')) {
+            Notice 'App was not found' 'This shortcut points to a missing file. Remove the shortcut or add the app at its new location.'
+            return
+        }
+        $dialog = New-Object Windows.Forms.Form
+        try {
+            $dialog.Text = $entry.Name + ' was not found'
+            $dialog.StartPosition = 'CenterParent'; $dialog.ClientSize = New-Object Drawing.Size(575,175)
+            $dialog.FormBorderStyle = 'FixedDialog'; $dialog.MaximizeBox = $false
+            $message = New-Object Windows.Forms.Label
+            $message.Text = 'Download the app, or locate it if it is already installed. TVT will remember its location. Some related projects require macOS.'
+            $message.SetBounds(15,15,545,50); $dialog.Controls.Add($message)
+            $dialog.Tag = $null
+            foreach ($option in @(
+                @{Title='Download from GitHub'; X=15; Y=75; Width=185; Result='download'},
+                @{Title='Navigate to it'; X=210; Y=75; Width=160; Result='locate'},
+                @{Title=('What is ' + $entry.Name + '?'); X=15; Y=120; Width=400; Result='description'},
+                @{Title='OK'; X=460; Y=120; Width=95; Result='done'}
+            )) {
+                $button = New-Object Windows.Forms.Button
+                $button.Text = $option.Title; $button.Tag = $option.Result
+                $button.SetBounds($option.X,$option.Y,$option.Width,30)
+                $button.Add_Click({ param($sender,$eventArgs) $sender.FindForm().Tag = $sender.Tag; $sender.FindForm().Close() })
+                $dialog.Controls.Add($button)
+            }
+            do {
+                $dialog.Tag = $null
+                [void]$dialog.ShowDialog($form)
+                if ($dialog.Tag -eq 'description') { Notice ('What is ' + $entry.Name + '?') $entry.Description }
+            } while ($dialog.Tag -eq 'description')
+            if ($dialog.Tag -eq 'download') { Start-Process $entry.URL }
+            if ($dialog.Tag -eq 'locate') {
+                $path = Pick-RelatedApp ('Locate ' + $entry.Name)
+                if ($path) {
+                    $script:relatedLocations[$entry.Name] = $path
+                    $script:relatedCustom = @($script:relatedCustom | Where-Object { $_.path -ine $path })
+                    Save-RelatedApps; Refresh-RelatedApps
+                    Start-Process -FilePath $path
+                }
+            }
+        } finally { $dialog.Dispose() }
+    } catch { Notice 'Could not open app' $_.Exception.Message }
+}
+function Refresh-RelatedApps {
+    $appsMenu.DropDownItems.Clear()
+    foreach ($entry in $script:relatedBuiltins) {
+        $item = $appsMenu.DropDownItems.Add($entry.Name + '...')
+        $item.Tag = $entry
+        $item.Add_Click({ param($sender,$eventArgs) Open-RelatedApp $sender.Tag })
+    }
+    if ($script:relatedCustom.Count) {
+        [void]$appsMenu.DropDownItems.Add((New-Object Windows.Forms.ToolStripSeparator))
+        foreach ($entry in $script:relatedCustom) {
+            $item = $appsMenu.DropDownItems.Add($entry.name)
+            $item.Tag = $entry
+            $item.Add_Click({ param($sender,$eventArgs) Open-RelatedApp $sender.Tag })
+        }
+    }
+    [void]$appsMenu.DropDownItems.Add((New-Object Windows.Forms.ToolStripSeparator))
+    $item = $appsMenu.DropDownItems.Add('Add an App...')
+    $item.Add_Click({
+        try {
+            $path = Pick-RelatedApp 'Choose an installed application'
+            if (-not $path -or @($script:relatedCustom | Where-Object { $_.path -ieq $path }).Count) { return }
+            $script:relatedCustom += @{name=[IO.Path]::GetFileNameWithoutExtension($path); path=$path}
+            Save-RelatedApps; Refresh-RelatedApps
+        } catch { Notice 'Could not save app shortcut' $_.Exception.Message }
+    })
+    if ($script:relatedCustom.Count) {
+        $item = $appsMenu.DropDownItems.Add('Remove an Added App...')
+        $item.Add_Click({
+            try {
+                $choice = Pick-Index 'Remove an Added App (shortcut only)' @($script:relatedCustom | ForEach-Object { $_.name })
+                if ($choice -lt 0) { return }
+                $remaining = @()
+                for ($i=0; $i -lt $script:relatedCustom.Count; $i++) { if ($i -ne $choice) { $remaining += $script:relatedCustom[$i] } }
+                $script:relatedCustom = $remaining
+                Save-RelatedApps; Refresh-RelatedApps
+            } catch { Notice 'Could not remove app shortcut' $_.Exception.Message }
+        })
+    }
+}
+Refresh-RelatedApps
+
 try { [void]$form.ShowDialog() }
 finally {
     $badge.Image.Dispose()

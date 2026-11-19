@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import UniformTypeIdentifiers
 
 final class ClipOrderMenu: NSPopUpButton {
     override func scrollWheel(with event: NSEvent) {}
@@ -653,6 +654,9 @@ final class TVT: NSObject, NSApplicationDelegate {
     var reportWindow: NSWindow?
     var trimEditor: TrimEditor?
     var restoreComparison: RestoreComparison?
+    var relatedAppsMenu: NSMenu!
+    let relatedAppsKey = "TVTRelatedAppsV1"
+    let builtInAppLocationsKey = "TVTBuiltInAppLocationsV1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if FileManager.default.fileExists(atPath: development.appendingPathComponent(".install-lock").path) {
@@ -679,6 +683,12 @@ final class TVT: NSObject, NSApplicationDelegate {
         edit.submenu?.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.submenu?.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.submenu?.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        let appsItem = NSMenuItem(title: "Apps", action: nil, keyEquivalent: "")
+        relatedAppsMenu = NSMenu(title: "Apps")
+        appsItem.submenu = relatedAppsMenu
+        menu.addItem(appsItem)
+        refreshRelatedApps()
 
         let windowMenu = NSMenuItem()
         menu.addItem(windowMenu)
@@ -1075,6 +1085,173 @@ final class TVT: NSObject, NSApplicationDelegate {
         let color = success ? NSColor(red: 0.79, green: 0.93, blue: 0.82, alpha: 1)
                             : NSColor(red: 1, green: 0.83, blue: 0.82, alpha: 1)
         setBanner(message, color: color)
+    }
+
+    func refreshRelatedApps() {
+        guard let menu = relatedAppsMenu else { return }
+        menu.removeAllItems()
+        let builtins: [(String, [String], String)] = [
+            ("InjectZ", ["InjectZ.app", "Inject Z.app"], "https://github.com/TedInVR/InjectZ"),
+            ("StereoMask for Mac", ["StereoMask.app"], "https://github.com/TedInVR/StereoMask-Mac"),
+            ("VM ReSizer", ["VM Re-Sizer.app", "VM ReSizer.app", "VMReSizer.app"], "https://github.com/TedInVR/VMReSizer"),
+            ("Stereo Slideshow", ["Stereo Slideshow.app", "StereoSlideshow.app"], "https://github.com/TedInVR/StereoSlideshow")
+        ]
+        for (name, names, link) in builtins {
+            let item = NSMenuItem(title: name + "…", action: #selector(openRelatedApp(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = ["builtinID": name, "names": names, "url": link]
+            menu.addItem(item)
+        }
+        let custom = UserDefaults.standard.array(forKey: relatedAppsKey) as? [[String: String]] ?? []
+        if !custom.isEmpty { menu.addItem(NSMenuItem.separator()) }
+        for app in custom {
+            guard let name = app["name"], let path = app["path"] else { continue }
+            let item = NSMenuItem(title: name, action: #selector(openRelatedApp(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = ["path": path]; menu.addItem(item)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let add = NSMenuItem(title: "Add an App…", action: #selector(addRelatedApp), keyEquivalent: "")
+        add.target = self; menu.addItem(add)
+        if !custom.isEmpty {
+            let remove = NSMenuItem(title: "Remove an Added App…", action: #selector(removeRelatedApp), keyEquivalent: "")
+            remove.target = self; menu.addItem(remove)
+        }
+    }
+
+    @objc func openRelatedApp(_ sender: NSMenuItem) {
+        guard let info = sender.representedObject as? [String: Any] else { return }
+        var paths: [URL] = []
+        if let id = info["builtinID"] as? String,
+           let locations = UserDefaults.standard.dictionary(forKey: builtInAppLocationsKey) as? [String: String],
+           let location = locations[id] {
+            paths.append(URL(fileURLWithPath: location))
+        }
+        if let path = info["path"] as? String { paths.append(URL(fileURLWithPath: path)) }
+        if let names = info["names"] as? [String] {
+            for folder in [URL(fileURLWithPath: "/Applications"),
+                           FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications")] {
+                for name in names { paths.append(folder.appendingPathComponent(name)) }
+            }
+            if info["builtinID"] as? String == "InjectZ" {
+                paths.append(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("InjectZ/InjectZ.app"))
+            }
+        }
+        if let found = paths.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            if !NSWorkspace.shared.open(found) {
+                self.alert("The app could not be opened", "Check that this application opens on this Mac: " + found.path)
+            }
+            return
+        }
+        let link = info["url"] as? String ?? ""
+        let alert = NSAlert(); alert.messageText = "\(sender.title.replacingOccurrences(of: "…", with: "")) was not found"
+        if let id = info["builtinID"] as? String, !link.isEmpty {
+            alert.informativeText = "Download the app, or locate it if it is already installed. TVT will remember its location."
+            alert.addButton(withTitle: "Download from GitHub")
+            alert.addButton(withTitle: "Navigate to it")
+            alert.addButton(withTitle: "What is \(id)?")
+            alert.addButton(withTitle: "OK")
+            while true {
+                let choice = alert.runModal()
+                if choice == .alertThirdButtonReturn { showRelatedAppDescription(id); continue }
+                if choice == .alertFirstButtonReturn, let url = URL(string: link) { NSWorkspace.shared.open(url) }
+                if choice == .alertSecondButtonReturn { locateBuiltInApp(id) }
+                break
+            }
+        } else {
+            alert.informativeText = "This app shortcut points to a missing file. Remove the shortcut or add the app at its new location."
+            alert.addButton(withTitle: "OK"); alert.runModal()
+        }
+    }
+
+    func showRelatedAppDescription(_ id: String) {
+        let descriptions: [String: String] = [
+            "InjectZ": """
+            InjectZ turns photographs into stereoscopic 3D images.
+
+            • Create side-by-side, cross-eye and red/cyan anaglyph images.
+            • Use the available depth engines and adjust the stereo effect.
+            • Create animated wigglegrams and work with stereo photo outputs.
+            • Some engines need separate setup or model downloads.
+            """,
+            "StereoMask for Mac": """
+            StereoMask helps you frame stereoscopic images and create out-of-frame effects.
+
+            • Adjust the stereo window and create or edit frames with shapes, curves and outlines.
+            • Select foreground objects so they can appear in front of the frame.
+            • Add text, speech bubbles and shadows; preview and export finished images.
+            • Save editable projects and use brushes, lassos, zoom and undo.
+
+            StereoMask is a collaboration between Subbiah Rathinagiri and Theodore Whitten.
+            """,
+            "VM ReSizer": """
+            VM Re-Sizer prepares existing stereo photos for View-Master-style reels.
+
+            • Frame, zoom and position both eyes together while maintaining their alignment.
+            • Fit the whole image or fill the frame, and swap eyes for crossview sources.
+            • Preview the approximate reel frame and export separate left and right images.
+            • Choose full-resolution files or the Image3D-ready size, as JPEG or PNG.
+            """,
+            "Stereo Slideshow": """
+            Stereo Slideshow creates stereoscopic photo and video slideshows with music.
+
+            • Arrange stereo photos and video clips in the order you want.
+            • Add music tracks, titles, stereo captions, fades and optional zoom or pan.
+            • Export side-by-side or red/cyan anaglyph video.
+            • Save a project to resume editing later. Optional local music creation needs an additional engine.
+            """
+        ]
+        let alert = NSAlert()
+        alert.messageText = "What is \(id)?"
+        alert.informativeText = descriptions[id] ?? "Information for this app is not available."
+        alert.addButton(withTitle: "Back")
+        alert.runModal()
+    }
+
+    func locateBuiltInApp(_ id: String) {
+        let picker = NSOpenPanel()
+        picker.message = "Locate \(id) on your Mac."
+        picker.allowedContentTypes = [.applicationBundle]
+        picker.canChooseFiles = true; picker.canChooseDirectories = false
+        picker.allowsMultipleSelection = false
+        guard picker.runModal() == .OK, let url = picker.url else { return }
+        var locations = UserDefaults.standard.dictionary(forKey: builtInAppLocationsKey) as? [String: String] ?? [:]
+        locations[id] = url.path
+        UserDefaults.standard.set(locations, forKey: builtInAppLocationsKey)
+        // The old workaround created a second menu item. Remove that shortcut
+        // only when it points to the exact app just linked to this built-in.
+        var custom = UserDefaults.standard.array(forKey: relatedAppsKey) as? [[String: String]] ?? []
+        custom.removeAll { entry in
+            guard let path = entry["path"] else { return false }
+            return URL(fileURLWithPath: path).standardizedFileURL == url.standardizedFileURL
+        }
+        UserDefaults.standard.set(custom, forKey: relatedAppsKey)
+        refreshRelatedApps()
+        if !NSWorkspace.shared.open(url) {
+            let alert = NSAlert(); alert.messageText = "The app could not be opened"
+            alert.informativeText = "Its location was saved. Check that the selected application opens on this Mac."
+            alert.runModal()
+        }
+    }
+
+    @objc func addRelatedApp() {
+        let p = NSOpenPanel(); p.message = "Choose an installed application."; p.allowedContentTypes = [.applicationBundle]
+        p.canChooseFiles = true; p.canChooseDirectories = false
+        guard p.runModal() == .OK, let url = p.url else { return }
+        var apps = UserDefaults.standard.array(forKey: relatedAppsKey) as? [[String: String]] ?? []
+        guard !apps.contains(where: { $0["path"] == url.path }) else { return }
+        apps.append(["name": url.deletingPathExtension().lastPathComponent, "path": url.path])
+        UserDefaults.standard.set(apps, forKey: relatedAppsKey); refreshRelatedApps()
+    }
+
+    @objc func removeRelatedApp() {
+        var apps = UserDefaults.standard.array(forKey: relatedAppsKey) as? [[String: String]] ?? []
+        guard !apps.isEmpty else { return }
+        let alert = NSAlert(); alert.messageText = "Remove an Added App"
+        alert.informativeText = "This removes the shortcut, not the app."
+        let choices = ClipOrderMenu(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        choices.addItems(withTitles: apps.map { $0["name"] ?? "App" }); alert.accessoryView = choices
+        alert.addButton(withTitle: "Remove"); alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        apps.remove(at: choices.indexOfSelectedItem); UserDefaults.standard.set(apps, forKey: relatedAppsKey); refreshRelatedApps()
     }
 
     @objc func revealResult() {

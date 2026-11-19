@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.32
+Ted's Video Tool (TVT) 0.8.33
 
 0.8.30 fixes the Mac update build failure caused by the clip-order
 buttons sharing action names with AppKit commands. Windows retains
@@ -9,6 +9,31 @@ On Mac, in-app updates preserve the running app's filename when it is
 installed directly in Applications. You can rename it TVT_Ted's Video Tool.
 An upgrade started from an older version may still install as TVT.app once;
 open that updated copy, then give it your preferred name.
+
+Apps menu (0.8.33)
+The Apps menu follows InjectZ's launcher menu. Open InjectZ, StereoMask for Mac,
+VM ReSizer, or Stereo Slideshow directly from TVT. They are separate applications
+and downloads; adding a shortcut does not install or bundle an application.
+
+If a built-in app is missing, choose Download from GitHub to open its project and
+installation instructions, Navigate to it to locate an installed copy, or
+What is [app]? for a short offline description. OK closes the dialog. Locating
+an app saves the path for the existing menu entry and removes an added shortcut
+that points to that exact app, avoiding a duplicate menu item.
+
+Apps > Add an App lets you choose another installed application. It remains in
+the menu after restarting or updating TVT. Remove an Added App removes only the
+custom shortcut, leaving the application itself untouched. If a custom app is
+moved or renamed, remove the old shortcut and add its new location.
+
+On Mac, select an .app bundle. TVT checks Applications, your user Applications
+folder, and InjectZ's standard ~/InjectZ/InjectZ.app location, as well as any
+remembered location. Locations and added shortcuts are stored in TVT preferences.
+On Windows, select an executable or application shortcut. TVT also checks the
+Start menu and executable search path. Its menu settings are stored in
+%APPDATA%\TVT\RelatedApps.json, outside the application/update folder.
+Some linked projects, including StereoMask for Mac, require macOS; the Windows
+menu can still open their GitHub pages and launch installed compatible apps.
 
 Change Speed (0.8.32)
 Under Picture and Format, click Change Speed. Choose one loaded video or browse
