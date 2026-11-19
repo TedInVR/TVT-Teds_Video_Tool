@@ -1,4 +1,4 @@
-Ted's Video Tool (TVT) 0.8.31
+Ted's Video Tool (TVT) 0.8.32
 
 0.8.30 fixes the Mac update build failure caused by the clip-order
 buttons sharing action names with AppKit commands. Windows retains
@@ -9,6 +9,39 @@ On Mac, in-app updates preserve the running app's filename when it is
 installed directly in Applications. You can rename it TVT_Ted's Video Tool.
 An upgrade started from an older version may still install as TVT.app once;
 open that updated copy, then give it your preferred name.
+
+Change Speed (0.8.32)
+Under Picture and Format, click Change Speed. Choose one loaded video or browse
+for a clip. The viewer has Play/Pause (Space), Beginning, backward/forward ten
+seconds, a position timeline, and volume. Scrubbing or skipping pauses playback;
+press Play to resume. Move the separate speed slider while playing to preview
+slow motion or fast motion immediately. You can also enter an exact multiplier.
+1x is normal, 0.5x is half speed, 2x is double speed, and Normal 1x resets it.
+The range is 0 (paused) through 8x, with a minimum saved speed of 0.05x and
+0.01x increments. The new running time appears beside the speed. Press Play
+at zero to return to normal speed. Zero cannot be exported as a finite movie.
+
+The viewer prepares a temporary, reduced-resolution playback copy with sound
+in 60-second sections, and prepares the next section when needed. Preparation
+can take a moment; the speed slider changes playback rate without re-encoding
+each adjustment. At extreme speeds native players may mute audio or display
+fewer frames. Preview sound is the first audio track. Closing the viewer removes
+its temporary copies. Mac uses AVPlayer; Windows uses the built-in WPF player.
+
+Save Video applies the selected constant speed to the whole input file. Choose
+MP4 or MKV (H.264 video/AAC audio). The export uses the full-resolution source,
+keeps its SBS/OU arrangement, and changes every audio track to match the video
+while preserving pitch. Silent inputs stay silent. Slow motion repeats existing
+frames; it does not synthesize extra motion detail. All subtitle tracks and
+chapters are omitted because their times would need separate adjustment; this
+is stated in the editor and save dialog. Export progress uses the new duration.
+
+On Mac, Change Speed follows the existing Replace Videos and Move Originals to
+Trash setting: by default it keeps the original base filename and moves the
+original to Trash only after a successful export. Choosing a different output
+format changes the filename extension. Disable replacement in the app menu to
+save a separate copy. Windows asks for a separate destination and retains the
+original, consistent with its other conversion tools.
 
 The main window and app icon use the same TVT mark.
 Install and update

@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+Add-Type -AssemblyName @('System.Windows.Forms','System.Drawing')
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $root = Split-Path $PSScriptRoot
 $version = [version](Get-Content (Join-Path $root VERSION) -Raw).Trim()
@@ -66,7 +66,7 @@ $script:sources = @()
 $buttons = @()
 $groups = @(
     @{ Title = 'Edit and Assemble'; X = 18; Y = 127; Tools = @('Trim Clip','Split Movie','Join Parts','Link Videos','Import Disc Backup') },
-    @{ Title = 'Picture and Format'; X = 322; Y = 127; Tools = @('Upscale Video','Convert Video','Change Aspect or Stereo Layout') },
+    @{ Title = 'Picture and Format'; X = 322; Y = 127; Tools = @('Upscale Video','Convert Video','Change Aspect or Stereo Layout','Change Speed') },
     @{ Title = 'Audio and Subtitles'; X = 18; Y = 345; Tools = @('Extract or Remove Audio','Add Subtitles') },
     @{ Title = 'Inspect and Download'; X = 322; Y = 345; Tools = @('MediaInfo','Download Online') }
 )
@@ -270,7 +270,7 @@ function New-EngineProcess([string[]]$arguments) {
     $info.StandardOutputEncoding = [Text.Encoding]::UTF8
     $info.StandardErrorEncoding = [Text.Encoding]::UTF8
     $progress = $null
-    if ($arguments[0] -in @('batch-item','upscale','convert','audio','layout','trim')) {
+    if ($arguments[0] -in @('batch-item','upscale','convert','audio','layout','trim','speed')) {
         $progress = Join-Path ([IO.Path]::GetTempPath()) ('TVT-' + [guid]::NewGuid())
         $info.EnvironmentVariables['TVT_PROGRESS_FILE'] = $progress.Replace('\','/')
     }
@@ -282,9 +282,10 @@ function New-EngineProcess([string[]]$arguments) {
         Errors = $process.StandardError.ReadToEndAsync()
     }
 }
-function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSource, [string]$discSource, [string]$audioSource) {
+function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSource, [string]$discSource, [string]$audioSource, [string]$speedSource) {
     $script:job = New-EngineProcess $arguments
     $script:job.Report = $reportName
+    $script:job.SpeedSource = $speedSource
     $script:job.TrimSource = $trimSource
     $script:job.DiscSource = $discSource
     $script:job.AudioSource = $audioSource
@@ -297,7 +298,7 @@ function Start-Engine([string[]]$arguments, [string]$reportName, [string]$trimSo
         split='Splitting movie'; join='Joining parts'; link='Linking videos'; upscale='Upscaling video'
         convert='Converting video'; download='Downloading media'; audio='Processing audio'
         subtitles='Preparing subtitles'; layout='Changing video layout'; info='Reading media information'
-        duration='Opening trim editor'; trim='Exporting selected clip'
+        duration='Opening editor'; trim='Exporting selected clip'; speed='Changing video speed'
         'disc-scan'='Scanning disc backup'; 'disc-import'='Importing disc title'; 'batch-item'='Processing batch item'
         'audio-tracks'='Reading audio tracks'
     }
@@ -423,6 +424,7 @@ $poll.Add_Tick({
     $result = $job.Output.Result.Trim()
     $errors = $job.Errors.Result.Trim()
     $report = $job.Report
+    $speedSource = $job.SpeedSource
     $trimSource = $job.TrimSource
     $discSource = $job.DiscSource
     $audioSource = $job.AudioSource
@@ -462,6 +464,14 @@ $poll.Add_Tick({
         } elseif ($discSource) {
             try { Complete-DiscScan $discSource @(ConvertFrom-Json $result) }
             catch { Notice 'Disc import failed' $_.Exception.Message }
+        } elseif ($speedSource) {
+            try {
+                $duration = [double]::Parse($result, [Globalization.CultureInfo]::InvariantCulture)
+                if ($duration -le 0 -or [double]::IsInfinity($duration) -or [double]::IsNaN($duration)) { throw 'No readable video duration.' }
+                $status.Text = 'Speed editor ready.'
+                $selection = @(Show-SpeedEditor $speedSource $duration)
+                if ($selection.Count) { Start-Engine $selection }
+            } catch { Notice 'Could not open speed editor' $_.Exception.Message }
         } elseif ($trimSource) {
             try {
                 $duration = [double]::Parse($result, [Globalization.CultureInfo]::InvariantCulture)
@@ -626,6 +636,209 @@ function Show-TrimEditor([string]$file, [double]$duration) {
         $dialog.Dispose()
         Remove-Item -LiteralPath $folder -Recurse -Force
         $script:trim = $null
+    }
+}
+
+# WPF MediaElement provides native playback with sound inside the speed editor.
+function Update-SpeedValue([double]$value) {
+    $editor = $script:speedEditor
+    $editor.Rate = if ($value -eq 0) { 0.0 } else { [Math]::Max(0.05, [Math]::Min(8.0, $value)) }
+    $editor.Speed.Value = [int][Math]::Round($editor.Rate * 100)
+    $editor.Number.Value = [decimal]$editor.Rate
+    if ($editor.Rate -eq 0) {
+        $editor.Player.Pause(); $editor.Playing = $false; $editor.Play.Text = 'Play'
+    } else { $editor.Player.SpeedRatio = $editor.Rate }
+    $editor.Save.Enabled = $editor.Rate -gt 0 -and -not $editor.Job
+    $newDuration = if ($editor.Rate -gt 0) { Format-Clock ($editor.Duration / $editor.Rate) } else { 'Stopped' }
+    $editor.Times.Text = "Speed $($editor.Rate.ToString('0.00'))x     New duration $newDuration"
+}
+function Request-SpeedPlayback([double]$position, [bool]$play) {
+    $editor = $script:speedEditor
+    $editor.Player.Pause(); $editor.Playing = $false; $editor.Play.Text = 'Play'
+    $position = [Math]::Max(0, [Math]::Min($editor.Duration, $position))
+    $editor.Position = $position
+    $editor.PendingPlay = $play
+    if ($editor.Ready -and $position -ge $editor.Start -and $position -lt $editor.End - 0.1) {
+        $editor.Player.Position = [TimeSpan]::FromSeconds($position - $editor.Start)
+        if ($play -and $editor.Rate -gt 0) {
+            $editor.Player.SpeedRatio = $editor.Rate
+            $editor.Player.Play(); $editor.Playing = $true; $editor.Play.Text = 'Pause'
+        }
+    } else { $editor.Pending = $position }
+}
+function Poll-SpeedPlayback {
+    $editor = $script:speedEditor
+    if ($editor.Job) {
+        $task = $editor.Job
+        if (-not $task.Process.HasExited -or -not $task.Output.IsCompleted -or -not $task.Errors.IsCompleted) { return }
+        $code = $task.Process.ExitCode
+        $detail = $task.Errors.Result
+        $task.Process.Dispose(); $editor.Job = $null
+        if ($editor.Closing) { $editor.Window.Close(); return }
+        if ($code -ne 0) {
+            $editor.Hint.Text = 'Could not prepare preview: ' + $detail
+            $editor.Play.Enabled = $true; $editor.Save.Enabled = $editor.Rate -gt 0
+            return
+        }
+        if ($null -eq $editor.Pending) {
+            $editor.Start = $editor.Active
+            $editor.End = [Math]::Min($editor.Duration, $editor.Start + 60)
+            $editor.Player.Source = [Uri]::new($editor.Preview)
+            # MediaOpened completes seeking and optional playback asynchronously.
+        }
+    }
+    if ($null -ne $editor.Pending) {
+        $editor.Active = $editor.Pending; $editor.Pending = $null
+        $editor.Ready = $false; $editor.Player.Close()
+        Get-ChildItem -LiteralPath $editor.Folder -Filter '*.mp4' | Remove-Item -Force -ErrorAction SilentlyContinue
+        $editor.Preview = Join-Path $editor.Folder ([guid]::NewGuid().ToString() + '.mp4')
+        $editor.Hint.Text = 'Preparing playback with sound...'
+        $editor.Play.Enabled = $false; $editor.Save.Enabled = $false
+        try { $editor.Job = New-EngineProcess @('playback-preview',(Format-MediaTime $editor.Active),$editor.File,$editor.Preview) }
+        catch { $editor.Hint.Text = $_.Exception.Message; $editor.Play.Enabled = $true }
+        return
+    }
+    if ($editor.Playing) {
+        $editor.Position = [Math]::Min($editor.Duration, $editor.Start + $editor.Player.Position.TotalSeconds)
+        $editor.Updating = $true
+        $editor.Timeline.Value = [int][Math]::Min($editor.Timeline.Maximum, $editor.Position * 1000)
+        $editor.Updating = $false
+        $editor.Hint.Text = 'Position ' + (Format-Clock $editor.Position)
+    }
+}
+function Show-SpeedEditor([string]$file, [double]$duration) {
+    Add-Type -AssemblyName @('PresentationCore','PresentationFramework','WindowsBase','WindowsFormsIntegration')
+    $folder = Join-Path (Split-Path $root) ('Speed-' + [guid]::NewGuid())
+    [void](New-Item -ItemType Directory -Path $folder)
+    $dialog = New-Object Windows.Forms.Form
+    $timer = New-Object Windows.Forms.Timer
+    $media = New-Object Windows.Controls.MediaElement
+    $hostView = New-Object Windows.Forms.Integration.ElementHost
+    try {
+        $dialog.Text = 'Change Speed - ' + [IO.Path]::GetFileName($file)
+        $dialog.StartPosition = 'CenterParent'; $dialog.ClientSize = New-Object Drawing.Size(810,655)
+        $dialog.FormBorderStyle = 'FixedDialog'; $dialog.MaximizeBox = $false
+        $dialog.KeyPreview = $true
+        $dialog.Add_KeyDown({
+            param($sender,$eventArgs)
+            if ($eventArgs.KeyCode -eq 'Space' -and -not $script:speedEditor.Number.Focused) {
+                $eventArgs.SuppressKeyPress = $true; $script:speedEditor.Play.PerformClick()
+            }
+        })
+        $hostView.SetBounds(15,12,780,390); $hostView.BackColor = [Drawing.Color]::Black
+        $media.LoadedBehavior = 'Manual'; $media.UnloadedBehavior = 'Manual'
+        $media.ScrubbingEnabled = $true; $media.Stretch = 'Uniform'; $hostView.Child = $media
+        $hint = New-Object Windows.Forms.Label
+        $hint.SetBounds(16,408,775,20); $hint.Text = 'Preparing preview...'
+        $timeline = New-Object Windows.Forms.TrackBar
+        $timeline.SetBounds(15,430,780,30); $timeline.AutoSize = $false; $timeline.TickStyle = 'None'
+        $timeline.Maximum = [int][Math]::Min([int]::MaxValue, [Math]::Floor($duration * 1000))
+        $timeline.Add_Scroll({ if (-not $script:speedEditor.Updating) { Request-SpeedPlayback ($script:speedEditor.Timeline.Value / 1000.0) $false } })
+        $speed = New-Object Windows.Forms.TrackBar
+        $speed.SetBounds(75,470,475,35); $speed.AutoSize = $false; $speed.TickStyle = 'None'
+        $speed.Maximum = 800; $speed.Value = 100
+        $speed.Add_Scroll({ Update-SpeedValue ($script:speedEditor.Speed.Value / 100.0) })
+        $number = New-Object Windows.Forms.NumericUpDown
+        $number.SetBounds(563,475,75,25); $number.Minimum = 0; $number.Maximum = 8
+        $number.DecimalPlaces = 2; $number.Increment = 0.01; $number.Value = 1
+        $number.Add_ValueChanged({ if ([Math]::Abs([double]$script:speedEditor.Number.Value - $script:speedEditor.Rate) -gt 0.001) { Update-SpeedValue ([double]$script:speedEditor.Number.Value) } })
+        $stopped = New-Object Windows.Forms.Label
+        $stopped.Text = 'Stopped'; $stopped.SetBounds(16,480,60,22)
+        $fast = New-Object Windows.Forms.Label
+        $fast.Text = '8x'; $fast.SetBounds(540,480,25,22)
+        $times = New-Object Windows.Forms.Label
+        $times.SetBounds(16,515,775,23)
+        $play = New-Object Windows.Forms.Button
+        $play.Text = 'Play'; $play.SetBounds(16,546,75,29)
+        $play.Add_Click({
+            $editor = $script:speedEditor
+            if ($editor.Playing) { Request-SpeedPlayback $editor.Position $false }
+            else {
+                if ($editor.Rate -eq 0) { Update-SpeedValue 1 }
+                $position = if ($editor.Position -ge $editor.Duration - 0.1) { 0 } else { $editor.Position }
+                Request-SpeedPlayback $position $true
+            }
+        })
+        $save = New-Object Windows.Forms.Button
+        $save.Text = 'Save Video...'; $save.SetBounds(565,546,120,29)
+        $save.Add_Click({
+            $editor = $script:speedEditor
+            if ($editor.Rate -le 0) { return }
+            Request-SpeedPlayback $editor.Position $false
+            $choice = Pick-Index 'Save Changed Speed (subtitles and chapters omitted)' @('MP4 (H.264 / AAC)','MKV (H.264 / AAC)') 0 $editor.Window
+            if ($choice -lt 0) { return }
+            $extension = @('mp4','mkv')[$choice]
+            $destination = Pick-Output $editor.File $extension 'Speed' $editor.Window
+            if (-not $destination) { return }
+            $editor.Result = @('speed',(Format-MediaTime $editor.Rate),$editor.File,$destination)
+            $editor.Window.Close()
+        })
+        $note = New-Object Windows.Forms.Label
+        $note.SetBounds(16,595,775,50)
+        $note.Text = '0 pauses; save from 0.05x to 8x. Saved audio keeps its pitch. Preview audio may be muted at extreme speeds. Exports video and all audio tracks; subtitles and chapters are omitted.'
+        $dialog.Controls.AddRange(@($hostView,$hint,$timeline,$speed,$number,$stopped,$fast,$times,$play,$save,$note))
+        foreach ($control in @(
+            @{Text='Beginning'; X=96; Width=90; Action={ Request-SpeedPlayback 0 $false }},
+            @{Text='-10 s'; X=191; Width=65; Action={ Request-SpeedPlayback ($script:speedEditor.Position - 10) $false }},
+            @{Text='+10 s'; X=261; Width=65; Action={ Request-SpeedPlayback ($script:speedEditor.Position + 10) $false }},
+            @{Text='Normal 1x'; X=675; Width=110; Y=473; Action={ Update-SpeedValue 1 }},
+            @{Text='Cancel'; X=700; Width=85; Action={ $script:speedEditor.Window.Close() }}
+        )) {
+            $button = New-Object Windows.Forms.Button
+            $button.Text = $control.Text
+            $y = if ($control.ContainsKey('Y')) { $control.Y } else { 546 }
+            $button.SetBounds($control.X,$y,$control.Width,29)
+            $button.Add_Click($control.Action); $dialog.Controls.Add($button)
+        }
+        $volume = New-Object Windows.Forms.TrackBar
+        $volume.SetBounds(370,546,160,29); $volume.AutoSize = $false; $volume.TickStyle = 'None'
+        $volume.Maximum = 100; $volume.Value = 100
+        $volume.AccessibleName = 'Volume'
+        $volume.Add_Scroll({ $script:speedEditor.Player.Volume = $this.Value / 100.0 })
+        $dialog.Controls.Add($volume)
+        $script:speedEditor = @{
+            Window=$dialog; Player=$media; Hint=$hint; Timeline=$timeline; Speed=$speed; Number=$number; Times=$times
+            Play=$play; Save=$save; Rate=1.0; Duration=$duration; File=$file; Folder=$folder; Preview=$null
+            Start=0.0; End=0.0; Position=0.0; Active=0.0; Pending=0.0; PendingPlay=$false
+            Playing=$false; Ready=$false; Updating=$false; Job=$null; Closing=$false; Result=$null
+        }
+        $media.Add_MediaOpened({
+            $editor = $script:speedEditor
+            if ($null -ne $editor.Pending -or $editor.Closing) { return }
+            $editor.Ready = $true
+            $editor.Play.Enabled = $true; Update-SpeedValue $editor.Rate
+            $editor.Hint.Text = 'Ready. Press Play, then adjust the speed.'
+            Request-SpeedPlayback $editor.Start $editor.PendingPlay
+        })
+        $media.Add_MediaEnded({
+            $editor = $script:speedEditor
+            if ($editor.End -ge $editor.Duration - 0.15) {
+                $editor.Player.Pause(); $editor.Playing = $false; $editor.Play.Text = 'Play'
+                $editor.Position = $editor.Duration
+                $editor.Timeline.Value = $editor.Timeline.Maximum
+                $editor.Hint.Text = 'End of video. Press Play to restart.'
+            } else { Request-SpeedPlayback $editor.End $editor.Playing }
+        })
+        $media.Add_MediaFailed({
+            $script:speedEditor.Playing = $false
+            $script:speedEditor.Hint.Text = 'Windows could not play this preview.'
+        })
+        $dialog.Add_FormClosing({
+            param($sender,$eventArgs)
+            $script:speedEditor.Player.Pause()
+            if ($script:speedEditor.Job) {
+                $eventArgs.Cancel = $true; $script:speedEditor.Closing = $true
+                $script:speedEditor.Hint.Text = 'Finishing the current preview...'
+            }
+        })
+        Update-SpeedValue 1
+        $timer.Interval = 100; $timer.Add_Tick({ Poll-SpeedPlayback }); $timer.Start()
+        [void]$dialog.ShowDialog($form)
+        $script:speedEditor.Result
+    } finally {
+        $timer.Stop(); $timer.Dispose(); $media.Close(); $hostView.Dispose(); $dialog.Dispose()
+        Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+        $script:speedEditor = $null
     }
 }
 
@@ -838,6 +1051,9 @@ function Choose-Operation($operation) {
         if ($multiple -and $files.Count -lt 2) { Notice $operation 'Choose at least two files.'; return }
         $file = $files[0]
         switch ($operation) {
+            'Change Speed' {
+                Start-Engine @('duration',$file) -speedSource $file
+            }
             'Trim Clip' {
                 Start-Engine @('duration',$file) -trimSource $file
             }
@@ -1027,7 +1243,7 @@ function Confirm-Update($release) {
 }
 function Check-Update([bool]$manual) {
     if ($script:queued) { if ($manual) { Notice 'TVT' 'TVT is preparing the update and will reopen automatically.' }; return }
-    if ($job -or $script:trim) { if ($manual) { Notice 'TVT' 'Wait until the current operation finishes.' }; return }
+    if ($job -or $script:trim -or $script:speedEditor) { if ($manual) { Notice 'TVT' 'Wait until the current operation finishes.' }; return }
     try {
         $commit = (Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/main" -TimeoutSec 12).sha
         if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'GitHub did not return a valid version reference.' }

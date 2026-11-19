@@ -247,6 +247,10 @@ final class TrimEditor: NSObject {
     let source: URL
     let duration: Double
     let restoring: Bool
+    let changingSpeed: Bool
+    let speedSlider = NSSlider(value: 1, minValue: 0, maxValue: 8, target: nil, action: nil)
+    let speedField = NSTextField(string: "1.00")
+    var selectedSpeed = 1.0
     let directory: URL
     weak var app: TVT?
     var start = 0.0
@@ -255,21 +259,23 @@ final class TrimEditor: NSObject {
     var previewInFlight = false
     var closed = false
 
-    init(app: TVT, source: URL, duration: Double, restoring: Bool = false) throws {
+    init(app: TVT, source: URL, duration: Double, restoring: Bool = false, changingSpeed: Bool = false) throws {
         self.app = app
         self.source = source
         self.duration = duration
         self.restoring = restoring
+        self.changingSpeed = changingSpeed
         self.end = duration
         directory = app.development.appendingPathComponent("Trim-" + UUID().uuidString, isDirectory: true)
         super.init()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        window.title = (restoring ? "AI Restore — " : "Trim Clip — ") + source.lastPathComponent
+        window.title = (changingSpeed ? "Change Speed — " : restoring ? "AI Restore — " : "Trim Clip — ") + source.lastPathComponent
         if restoring {
             window.setContentSize(NSSize(width: 810, height: 620))
             image.protectionDrawingEnabled = true
             saveButton.title = "Restore Selection…"
         }
+        if changingSpeed { saveButton.title = "Save Video…" }
         let content = NSView()
         window.contentView = content
         let stack = NSStackView()
@@ -307,7 +313,21 @@ final class TrimEditor: NSObject {
         stack.addArrangedSubview(NSStackView(views: [
             playButton, NSTextField(labelWithString: "Volume"), volume
         ]))
-        window.setContentSize(NSSize(width: 810, height: restoring ? 655 : 625))
+        if changingSpeed {
+            speedSlider.target = self
+            speedSlider.action = #selector(changeSpeedSlider)
+            speedSlider.isContinuous = true
+            speedSlider.widthAnchor.constraint(equalToConstant: 430).isActive = true
+            speedField.widthAnchor.constraint(equalToConstant: 65).isActive = true
+            speedField.target = self
+            speedField.action = #selector(changeSpeedNumber)
+            stack.addArrangedSubview(NSStackView(views: [
+                NSTextField(labelWithString: "Stopped"), speedSlider, NSTextField(labelWithString: "8×"),
+                speedField, NSTextField(labelWithString: "×"),
+                NSButton(title: "Normal 1×", target: self, action: #selector(normalSpeed))
+            ]))
+        }
+        window.setContentSize(NSSize(width: 810, height: changingSpeed ? 715 : restoring ? 655 : 625))
         playbackObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.05, preferredTimescale: 600),
                                                           queue: .main) { [weak self] time in
             guard let self = self, !self.closed, self.player.rate > 0, time.seconds.isFinite else { return }
@@ -315,17 +335,14 @@ final class TrimEditor: NSObject {
             self.updateTimes()
             self.previewState.stringValue = "Playing at " + self.timeText(self.timeline.doubleValue)
             if self.timeline.doubleValue >= self.playbackEnd - 0.08 {
-                self.pausePlayback()
-                self.previewState.stringValue = "Playback paused. Press Play to continue."
+                self.completePlayback()
             }
         }
         playbackEndObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime,
                                                                      object: nil, queue: .main) { [weak self] note in
             guard let self = self, let item = note.object as? AVPlayerItem,
-                  item === self.player.currentItem, !self.closed else { return }
-            self.timeline.doubleValue = self.playbackEnd
-            self.pausePlayback()
-            self.previewState.stringValue = "Playback paused. Press Play to continue."
+                  item === self.player.currentItem, !self.closed, !self.preparingPlayback else { return }
+            self.completePlayback()
         }
         stack.addArrangedSubview(previewState)
         timeline.maxValue = duration
@@ -336,7 +353,7 @@ final class TrimEditor: NSObject {
         stack.addArrangedSubview(timeline)
         range.widthAnchor.constraint(equalToConstant: 778).isActive = true
         range.heightAnchor.constraint(equalToConstant: 12).isActive = true
-        stack.addArrangedSubview(range)
+        if !changingSpeed { stack.addArrangedSubview(range) }
         stack.addArrangedSubview(times)
         saveButton.target = self
         saveButton.action = #selector(saveSelection)
@@ -345,15 +362,29 @@ final class TrimEditor: NSObject {
             NSButton(title: "+0.1 s", target: self, action: #selector(forward)),
             NSButton(title: "Mark Start", target: self, action: #selector(markStart)),
             NSButton(title: "Mark End", target: self, action: #selector(markEnd)),
-            saveButton, NSButton(title: "Cancel", target: self, action: #selector(cancel))
         ])
+        if !changingSpeed {
+            controls.addArrangedSubview(saveButton)
+            controls.addArrangedSubview(NSButton(title: "Cancel", target: self, action: #selector(cancel)))
+        }
         if restoring {
             controls.insertArrangedSubview(NSButton(title: "Clear Boxes", target: self, action: #selector(clearBoxes)), at: 4)
             comparisonButton.target = self
             comparisonButton.action = #selector(compareSelection)
             controls.insertArrangedSubview(comparisonButton, at: 5)
         }
-        stack.addArrangedSubview(controls)
+        if changingSpeed {
+            stack.addArrangedSubview(NSStackView(views: [
+                NSButton(title: "Beginning", target: self, action: #selector(rewindToStart)),
+                NSButton(title: "−10 s", target: self, action: #selector(rewindTen)),
+                NSButton(title: "+10 s", target: self, action: #selector(advanceTen)),
+                saveButton, NSButton(title: "Cancel", target: self, action: #selector(cancel))
+            ]))
+            let note = NSTextField(wrappingLabelWithString:
+                "0 pauses; save from 0.05× to 8×. Saved audio keeps its pitch. Preview audio may be muted at extreme speeds. Exports video and all audio tracks; subtitles and chapters are omitted.")
+            note.widthAnchor.constraint(equalToConstant: 778).isActive = true
+            stack.addArrangedSubview(note)
+        } else { stack.addArrangedSubview(controls) }
         if restoring {
             stack.addArrangedSubview(NSTextField(labelWithString: "Restore the whole video or mark a shorter range. Draw boxes around areas to protect."))
         }
@@ -366,6 +397,11 @@ final class TrimEditor: NSObject {
     }
 
     func updateTimes() {
+        if changingSpeed {
+            times.stringValue = "Position  \(timeText(timeline.doubleValue))     Speed  \(String(format: "%.2f", selectedSpeed))×     New duration  " + (selectedSpeed > 0 ? timeText(duration / selectedSpeed) : "Stopped")
+            saveButton.isEnabled = selectedSpeed >= 0.05
+            return
+        }
         times.stringValue = "Position  \(timeText(timeline.doubleValue))     Start  \(timeText(start))     End  \(timeText(end))"
         range.start = start / duration
         range.end = end / duration
@@ -384,6 +420,32 @@ final class TrimEditor: NSObject {
         loadPreview()
     }
 
+    func setSpeed(_ value: Double) {
+        guard value.isFinite else { return }
+        selectedSpeed = value == 0 ? 0 : min(8, max(0.05, (value * 100).rounded() / 100))
+        speedSlider.doubleValue = selectedSpeed
+        speedField.stringValue = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), selectedSpeed)
+        if selectedSpeed == 0 { pausePlayback() }
+        else if player.rate > 0 { player.rate = Float(selectedSpeed) }
+        updateTimes()
+    }
+    @objc func changeSpeedSlider() { setSpeed((speedSlider.doubleValue * 100).rounded() / 100) }
+    @objc func changeSpeedNumber() { _ = readSpeedNumber() }
+    func readSpeedNumber() -> Bool {
+        let text = speedField.stringValue.replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(text), value.isFinite, value == 0 || (value >= 0.05 && value <= 8) else {
+            setSpeed(selectedSpeed)
+            app?.alert("Choose a valid speed", "Enter 0 to pause, or a speed from 0.05 to 8.")
+            return false
+        }
+        setSpeed(value)
+        return true
+    }
+    @objc func normalSpeed() { setSpeed(1) }
+    @objc func rewindToStart() { timeline.doubleValue = 0; scrub() }
+    @objc func rewindTen() { timeline.doubleValue = max(0, timeline.doubleValue - 10); scrub() }
+    @objc func advanceTen() { timeline.doubleValue = min(duration, timeline.doubleValue + 10); scrub() }
+
     @objc func changeVolume(_ sender: NSSlider) { player.volume = Float(sender.doubleValue) }
 
     func pausePlayback() {
@@ -396,16 +458,26 @@ final class TrimEditor: NSObject {
         updateTimes()
     }
 
+    func completePlayback() {
+        pausePlayback()
+        timeline.doubleValue = playbackEnd
+        updateTimes()
+        if changingSpeed && selectedSpeed > 0 && playbackEnd < duration - 0.15 {
+            togglePlayback()
+        } else { previewState.stringValue = "Playback paused. Press Play to continue." }
+    }
+
     @objc func togglePlayback() {
         guard !closed, !preparingPlayback, let app = app else { return }
         if player.rate > 0 { pausePlayback(); return }
+        if changingSpeed && selectedSpeed == 0 { setSpeed(1) }
         let position = timeline.doubleValue >= duration - 0.05 ? 0 : timeline.doubleValue
         timeline.doubleValue = position
         if player.currentItem != nil, position >= playbackStart, position < playbackEnd - 0.1 {
             playerView.isHidden = false
             player.seek(to: CMTime(seconds: position - playbackStart, preferredTimescale: 600),
                         toleranceBefore: .zero, toleranceAfter: .zero)
-            player.play()
+            player.playImmediately(atRate: Float(changingSpeed ? selectedSpeed : 1))
             playButton.title = "Pause"
             return
         }
@@ -430,14 +502,22 @@ final class TrimEditor: NSObject {
             }
             self.playbackStart = position
             self.playbackEnd = min(self.duration, position + 60)
-            self.player.replaceCurrentItem(with: AVPlayerItem(url: path))
+            let item = AVPlayerItem(url: path)
+            item.audioTimePitchAlgorithm = .spectral
+            self.player.replaceCurrentItem(with: item)
+            if let files = try? FileManager.default.contentsOfDirectory(at: self.directory, includingPropertiesForKeys: nil) {
+                for file in files where file.lastPathComponent.hasPrefix("playback-") && file != path {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
             // A scrub during preparation keeps its requested position.
             if abs(self.timeline.doubleValue - position) > 0.15 {
                 self.previewState.stringValue = "Position changed. Press Play when ready."
                 return
             }
             self.playerView.isHidden = false
-            self.player.play()
+            guard !self.changingSpeed || self.selectedSpeed > 0 else { return }
+            self.player.playImmediately(atRate: Float(self.changingSpeed ? self.selectedSpeed : 1))
             self.playButton.title = "Pause"
         }
     }
@@ -479,6 +559,19 @@ final class TrimEditor: NSObject {
 
     @objc func saveSelection() {
         guard let app = app, end > start else { return }
+        if changingSpeed {
+            guard readSpeedNumber(), selectedSpeed >= 0.05 else { return }
+            pausePlayback()
+            guard let choice = app.chooseOption("Save Changed Speed", ["MP4 (H.264 / AAC)", "MKV (H.264 / AAC)"],
+                detail: "Applies \(String(format: "%.2f", selectedSpeed))× to the entire video and all audio tracks. Audio keeps its pitch. Subtitles and chapters are omitted because their timing changes.") else { return }
+            let format = choice == 0 ? "mp4" : "mkv"
+            let rate = app.mediaTime(selectedSpeed)
+            finish()
+            app.exportVideo(["speed", rate, source.path], source: source,
+                            name: source.deletingPathExtension().lastPathComponent + " Speed." + format,
+                            fileExtension: format)
+            return
+        }
         if restoring {
             restoreSelection(preview: false)
             return
@@ -662,7 +755,8 @@ final class TVT: NSObject, NSApplicationDelegate {
         ])
         let picture = toolGroup("Picture and Format", [
             ("Upscale Video", #selector(upscale)), ("Convert Video", #selector(convertVideo)),
-            ("Change Aspect or Stereo Layout", #selector(changeLayout)), ("AI Restore", #selector(restoreClip))
+            ("Change Aspect or Stereo Layout", #selector(changeLayout)), ("Change Speed", #selector(changeSpeed)),
+            ("AI Restore", #selector(restoreClip))
         ])
         let tracks = toolGroup("Audio and Subtitles", [
             ("Extract or Remove Audio", #selector(audioTools)), ("Add Subtitles", #selector(addSubtitles))
@@ -1021,10 +1115,10 @@ final class TVT: NSObject, NSApplicationDelegate {
         let messages = ["split": "Splitting movie", "join": "Joining parts", "link": "Linking videos",
                         "upscale": "Upscaling video", "convert": "Converting video", "download": "Downloading media",
                         "audio": "Processing audio", "subtitles": "Preparing subtitles", "layout": "Changing video layout",
-                        "trim": "Exporting selected clip"]
+                        "trim": "Exporting selected clip", "speed": "Changing video speed"]
         let operation = arguments[0]
         let activity = messages[operation] ?? "Processing"
-        let progressModes = ["upscale", "convert", "audio", "layout", "trim"]
+        let progressModes = ["upscale", "convert", "audio", "layout", "trim", "speed"]
         let label = progressModes.contains(operation)
             ? activity + " · " + URL(fileURLWithPath: arguments[operation == "layout" ? 3 : 2]).lastPathComponent
             : activity + "… Please wait."
@@ -1146,8 +1240,13 @@ final class TVT: NSObject, NSApplicationDelegate {
         openEditor(source, restoring: false)
     }
 
-    func openEditor(_ source: URL, restoring: Bool) {
-        beginProcessing(restoring ? "Opening restoration editor… Please wait." : "Opening trim editor… Please wait.")
+    @objc func changeSpeed() {
+        guard let source = sourceFiles("Choose a video to change its speed.", multiple: false)?.first else { return }
+        openEditor(source, restoring: false, changingSpeed: true)
+    }
+
+    func openEditor(_ source: URL, restoring: Bool, changingSpeed: Bool = false) {
+        beginProcessing(changingSpeed ? "Opening speed editor… Please wait." : restoring ? "Opening restoration editor… Please wait." : "Opening trim editor… Please wait.")
         execute(resources.appendingPathComponent("engine.sh"), ["duration", source.path]) { success, output in
             guard success, let duration = Double(output), duration.isFinite, duration > 0 else {
                 self.endProcessing("Could not open trim editor.", success: false)
@@ -1155,8 +1254,8 @@ final class TVT: NSObject, NSApplicationDelegate {
                 return
             }
             do {
-                let editor = try TrimEditor(app: self, source: source, duration: duration, restoring: restoring)
-                self.endProcessing(restoring ? "Restoration editor ready." : "Trim editor ready.", success: true)
+                let editor = try TrimEditor(app: self, source: source, duration: duration, restoring: restoring, changingSpeed: changingSpeed)
+                self.endProcessing(changingSpeed ? "Speed editor ready." : restoring ? "Restoration editor ready." : "Trim editor ready.", success: true)
                 self.trimEditor = editor
                 self.window.beginSheet(editor.window)
                 editor.scrub()

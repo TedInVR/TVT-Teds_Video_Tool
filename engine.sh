@@ -95,7 +95,7 @@ progress_options=()
 if [[ -n "${TVT_PROGRESS_FILE:-}" ]]; then
     progress_source=''
     case "$mode" in
-        upscale|convert|audio) progress_source=$2 ;;
+        upscale|convert|audio|speed) progress_source=$2 ;;
         layout) progress_source=$3 ;;
     esac
     if [[ "$mode" == trim ]]; then
@@ -104,6 +104,9 @@ if [[ -n "${TVT_PROGRESS_FILE:-}" ]]; then
         duration=$("$FFPROBE" -v error -show_entries format=duration -of default=nw=1:nk=1 "$progress_source" 2>/dev/null || true)
     else
         duration=''
+    fi
+    if [[ "$mode" == speed && "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        duration=$(awk -v d="$duration" -v rate="$1" 'BEGIN {if (rate>0) printf "%.6f", d/rate}')
     fi
     if [[ "$duration" =~ ^[0-9]+([.][0-9]+)?$ ]] && printf '%s\n' "$duration" > "$TVT_PROGRESS_FILE.duration"; then
         progress_options=(-progress "$TVT_PROGRESS_FILE" -nostats)
@@ -378,6 +381,33 @@ elif [[ "$mode" == convert && ( "$1" == cross-* || "$1" == anaglyph-* ) ]]; then
         -map_metadata 0 -map_chapters 0 -vf "$filter" "${video_encoding[@]}" -c:a copy -c:s copy -c:t copy \
         -metadata:s:v:0 "stereo_mode=$stereo" "$output_stage/result.mkv"
     publish "$output_stage/result.mkv" "$destination"
+elif [[ "$mode" == speed ]]; then
+    rate=$1
+    source_file=$2
+    destination=$3
+    [[ "$rate" =~ ^[0-9]+([.][0-9]+)?$ ]] &&
+        awk -v r="$rate" 'BEGIN {exit !(r>=0.05 && r<=8)}' || {
+        echo 'Choose a speed from 0.05x to 8x. Zero pauses the preview only.' >&2; exit 1;
+    }
+    format=${destination##*.}
+    case "$format" in mp4|mkv) ;; *) echo 'Choose MP4 or MKV for Change Speed.' >&2; exit 1 ;; esac
+    # Keep every atempo stage within 0.5..2 to avoid skipping audio samples.
+    tempo=$(awk -v r="$rate" -v rate="$rate" 'BEGIN {
+        while(r<0.5) {printf "atempo=0.5,"; r/=0.5}
+        while(r>2) {printf "atempo=2,"; r/=2}
+        printf "atempo=%.8f,asetpts=N/SR/TB+STARTPTS/%.8f", r, rate
+    }')
+    frame_rate=$(probe_video avg_frame_rate "$source_file")
+    frame_rate=$(awk -v f="$frame_rate" 'BEGIN {split(f,a,"/"); r=a[1]; if(a[2]>0)r/=a[2]; if(r<=0)r=30; if(r>60)r=60; printf "%.8f",r}')
+    stage_output "$destination"
+    flags=()
+    if [[ "$format" == mp4 ]]; then flags=(-movflags +faststart); fi
+    # Retain frame dimensions and stereo layout. Subtitles/chapters need separate retiming.
+    run_ffmpeg -n -i "$source_file" -map 0:V:0 -map '0:a?' -map_metadata 0 -map_chapters -1 \
+        -vf "setpts=PTS/$rate,fps=$frame_rate,pad=ceil(iw/2)*2:ceil(ih/2)*2" \
+        -af "$tempo" "${video_encoding[@]}" "${audio_encoding[@]}" \
+        -sn -dn ${flags[@]+"${flags[@]}"} "$output_stage/result.$format"
+    publish "$output_stage/result.$format" "$destination"
 elif [[ "$mode" == convert || "$mode" == trim ]]; then
     format=$1
     source_file=$2

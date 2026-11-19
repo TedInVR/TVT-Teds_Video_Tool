@@ -7,7 +7,7 @@ mode=$1
 shift
 winpath() { cygpath -am "$1"; }
 case "$mode" in
-    info|split|upscale|convert|audio|preview)
+    info|split|upscale|convert|audio|preview|playback-preview|speed)
         arguments=("$1")
         shift
         for path in "$@"; do arguments+=("$(winpath "$path")"); done
